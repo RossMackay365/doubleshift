@@ -1,0 +1,11 @@
+# Web Framework & Server
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
+
+# The Solver
+ortools
+
+# Utilities
+python-dotenv

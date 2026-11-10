@@ -1,0 +1,31 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+    # ~40% of the 3.7 GiB VPS. Caps the CP-SAT solver so a large problem
+    # gets this container OOM-killed (and auto-restarted) instead of taking
+    # down the whole host. memswap_limit == mem_limit disables swap spillover
+    # for deterministic behaviour; raise it if the VPS has swap you want used.
+    mem_limit: 1500m
+    mem_reservation: 512m
+    memswap_limit: 1500m
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_BACKEND_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    mem_limit: 512m
+    mem_reservation: 128m

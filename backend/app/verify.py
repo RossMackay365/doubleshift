@@ -1,0 +1,511 @@
+from collections import defaultdict
+from typing import Optional
+from .transform import transform_data
+from .config import resolve_rewards
+
+
+def verify_schedule(raw_data: dict, schedule_entries: list, best_bound: Optional[float] = None, rewards_cfg: Optional[dict] = None) -> dict:
+    """
+    Validates a user-edited schedule against all hard constraints, computes the
+    soft-constraint objective score, and returns an optimality gap if a best_bound
+    is provided (from the original solver run).
+    """
+    data = transform_data(raw_data)
+
+    raw      = data['raw']
+    groups   = raw['groups']
+    trainers = raw['trainers']
+    courts   = raw['courts']
+    timeslots = raw['timeslots']
+
+    # Name-based lookups (schedule entries use display names, not internal IDs)
+    group_name_to_gi   = {g['name']: i for i, g in enumerate(groups)}
+    trainer_name_to_ti = {t['name']: i for i, t in enumerate(trainers)}
+    court_name_to_ci   = {c['courtName']: i for i, c in enumerate(courts)}
+    slot_id_to_si      = {s['id']: i for i, s in enumerate(timeslots)}
+    trainer_keys       = list(data['indices']['t'].keys())  # trainer index -> trainer ID
+
+    violations: list[str] = []
+
+    # --- Parse and validate entry references ---
+    parsed: list[tuple] = []  # (gi, ti, ci, si)
+    for entry in schedule_entries:
+        g_name = entry.get('group')
+        t_name = entry.get('trainer')
+        c_name = entry.get('court')
+        s_id   = entry.get('timeslot')
+
+        gi = group_name_to_gi.get(g_name)
+        ti = trainer_name_to_ti.get(t_name)
+        ci = court_name_to_ci.get(c_name)
+        si = slot_id_to_si.get(s_id)
+
+        if gi is None: violations.append(f"Unknown group: '{g_name}'"); continue
+        if ti is None: violations.append(f"Unknown trainer: '{t_name}'"); continue
+        if ci is None: violations.append(f"Unknown court: '{c_name}'"); continue
+        if si is None: violations.append(f"Unknown timeslot ID: {s_id}"); continue
+
+        parsed.append((gi, ti, ci, si))
+
+    if violations:
+        return _result(feasible=False, violations=violations, score=None, best_bound=best_bound)
+
+    quals    = data['quals']
+    t_avail  = data['availability']['trainers']
+    g_avail  = data['availability']['groups']
+    members  = data['members']
+    capacity = data['capacity']
+
+    loc_names   = raw.get('location_names', [])
+    loc_to_idx  = {name: i for i, name in enumerate(loc_names)}
+
+    # --- Per-entry: availability, qualification, membership, location ---
+    for gi, ti, ci, si in parsed:
+        g_name     = groups[gi]['name']
+        t_name     = trainers[ti]['name']
+        slot       = timeslots[si]
+        slot_label = f"{slot['day']} {slot['start']}–{slot['finish']}"
+
+        if not t_avail[ti][si]:
+            violations.append(f"Trainer '{t_name}' is not available at {slot_label}")
+        if not g_avail[gi][si]:
+            violations.append(f"Group '{g_name}' is not available at {slot_label}")
+        if not quals[ti][gi]:
+            violations.append(f"Trainer '{t_name}' is not qualified to train group '{g_name}'")
+        t_key = trainer_keys[ti]
+        if t_key in set(members.get(gi, [])):
+            violations.append(
+                f"Trainer '{t_name}' plays in group '{g_name}' and cannot also coach it"
+            )
+
+        # Location bitmask checks
+        venue   = courts[ci].get('location', '') if courts else ''
+        loc_idx = loc_to_idx.get(venue)
+        if loc_idx is not None:
+            ts_loc = slot.get('location_bitmask', [])
+            if ts_loc and loc_idx < len(ts_loc) and ts_loc[loc_idx] == 0:
+                violations.append(
+                    f"Timeslot '{slot_label}' does not apply to location '{venue}'"
+                )
+            g_loc = groups[gi].get('location_bitmask', [])
+            if g_loc and loc_idx < len(g_loc) and g_loc[loc_idx] == 0:
+                violations.append(
+                    f"Group '{g_name}' is not allowed at location '{venue}'"
+                )
+
+    # --- Hard 1: Each group assigned exactly once ---
+    group_sessions: dict = defaultdict(int)
+    for gi, _, _, _ in parsed:
+        group_sessions[gi] += 1
+
+    for gi, group in enumerate(groups):
+        count = group_sessions.get(gi, 0)
+        if count == 0:
+            violations.append(f"Group '{group['name']}' has no session assigned")
+        elif count > 1:
+            violations.append(f"Group '{group['name']}' is assigned {count} sessions (must be exactly 1)")
+
+    # --- Hard 2: At most one group per court per slot ---
+    court_slot: dict = defaultdict(list)
+    for gi, _, ci, si in parsed:
+        court_slot[(ci, si)].append(groups[gi]['name'])
+
+    for (ci, si), gnames in court_slot.items():
+        if len(gnames) > 1:
+            slot = timeslots[si]
+            violations.append(
+                f"Court '{courts[ci]['courtName']}' at {slot['day']} {slot['start']}–{slot['finish']} "
+                f"has {len(gnames)} groups: {', '.join(gnames)}"
+            )
+
+    # --- Hard 3+4: Trainer capacity and per-slot conflict ---
+    trainer_groups: dict = defaultdict(list)
+    trainer_slot_groups: dict = defaultdict(list)
+    for gi, ti, _, si in parsed:
+        trainer_groups[ti].append(groups[gi]['name'])
+        trainer_slot_groups[(ti, si)].append(groups[gi]['name'])
+
+    for ti, gnames in trainer_groups.items():
+        cap = capacity[ti]
+        if len(gnames) > cap:
+            violations.append(
+                f"Trainer '{trainers[ti]['name']}' is assigned to {len(gnames)} groups "
+                f"(capacity is {cap}): {', '.join(gnames)}"
+            )
+
+    for (ti, si), gnames in trainer_slot_groups.items():
+        if len(gnames) > 1:
+            slot = timeslots[si]
+            violations.append(
+                f"Trainer '{trainers[ti]['name']}' coaches multiple groups at "
+                f"{slot['day']} {slot['start']}: {', '.join(gnames)}"
+            )
+
+    # --- Hard 5: Trainer can't play and coach at the same slot ---
+    playing_slots: dict = defaultdict(set)   # ti -> {si, ...}
+    coaching_slots: dict = defaultdict(set)  # ti -> {si, ...}
+
+    for gi, _, _, si in parsed:
+        for t_key in members.get(gi, []):
+            if t_key in data['indices']['t']:
+                ti2 = data['indices']['t'][t_key]
+                playing_slots[ti2].add(si)
+
+    for _, ti, _, si in parsed:
+        coaching_slots[ti].add(si)
+
+    for ti in range(len(trainers)):
+        for si in playing_slots[ti] & coaching_slots[ti]:
+            slot = timeslots[si]
+            violations.append(
+                f"Trainer '{trainers[ti]['name']}' is both playing and coaching "
+                f"at {slot['day']} {slot['start']}–{slot['finish']}"
+            )
+
+    # --- Hard 6: Trainer travel time ---
+    travel_minutes = data.get('travel_minutes', {})
+    if travel_minutes:
+        slots_by_day: dict = defaultdict(list)
+        for i, s in enumerate(timeslots):
+            slots_by_day[s['day']].append(i)
+
+        # Build (trainer_index, slot_index) → venue for coaching and playing
+        trainer_slot_venue: dict = defaultdict(dict)
+        for gi, ti, ci, si in parsed:
+            venue = courts[ci].get('location', '') if ci < len(courts) else ''
+            trainer_slot_venue[ti][si] = venue
+        for gi, ti, ci, si in parsed:
+            venue = courts[ci].get('location', '') if ci < len(courts) else ''
+            for t_key in members.get(gi, []):
+                if t_key in data['indices']['t']:
+                    ti2 = data['indices']['t'][t_key]
+                    trainer_slot_venue[ti2][si] = venue
+
+        for ti in range(len(trainers)):
+            slot_venue = trainer_slot_venue.get(ti, {})
+            for day, day_slots in slots_by_day.items():
+                active = [(si, slot_venue[si]) for si in day_slots if si in slot_venue]
+                for k in range(len(active)):
+                    for l in range(k + 1, len(active)):
+                        s1, v1 = active[k]
+                        s2, v2 = active[l]
+                        if not v1 or not v2 or v1 == v2:
+                            continue
+                        travel = travel_minutes.get((v1, v2), 0)
+                        if travel == 0:
+                            continue
+                        gap = _parse_hhmm(timeslots[s2]['start']) - _parse_hhmm(timeslots[s1]['finish'])
+                        if gap < travel:
+                            violations.append(
+                                f"Trainer '{trainers[ti]['name']}' cannot travel from '{v1}' to '{v2}' "
+                                f"({gap} min gap, needs {travel} min) between "
+                                f"{timeslots[s1]['day']} {timeslots[s1]['finish']} and "
+                                f"{timeslots[s2]['day']} {timeslots[s2]['start']}"
+                            )
+
+    # --- Hard 7: Required day preference ---
+    # A group is scheduled once, so a player-trainer has a single play day.
+    #   'same':      every coaching session must be on the play day
+    #   'different': no coaching session may be on the play day
+    day_pref          = data.get('day_pref', ['same'] * len(trainers))
+    day_pref_required = data.get('day_pref_required', [False] * len(trainers))
+    playing_group_name: dict = {}  # ti -> name of the group they play in (if scheduled)
+    for gi, _, _, _ in parsed:
+        for t_key in members.get(gi, []):
+            if t_key in data['indices']['t']:
+                playing_group_name[data['indices']['t'][t_key]] = groups[gi]['name']
+
+    for gi, ti, _, si in parsed:
+        if not day_pref_required[ti] or not playing_slots[ti]:
+            continue
+        pref     = day_pref[ti]
+        play_day = timeslots[next(iter(playing_slots[ti]))]['day']
+        day      = timeslots[si]['day']
+        t_name   = trainers[ti]['name']
+        p_name   = playing_group_name.get(ti, '?')
+        if pref == 'same' and day != play_day:
+            violations.append(
+                f"Trainer '{t_name}' must coach on the same day they play "
+                f"(plays in '{p_name}' on {play_day}) but coaches '{groups[gi]['name']}' on {day}"
+            )
+        elif pref == 'different' and day == play_day:
+            violations.append(
+                f"Trainer '{t_name}' must coach on a different day from when they play "
+                f"(plays in '{p_name}' on {play_day}) but coaches '{groups[gi]['name']}' on {day}"
+            )
+
+    feasible = len(violations) == 0
+    score    = _compute_score(data, parsed, rewards_cfg or {}) if feasible else None
+
+    return _result(feasible=feasible, violations=violations, score=score, best_bound=best_bound)
+
+
+def _compute_score(data: dict, parsed: list, rewards_cfg: dict) -> float:
+    """
+    Computes the soft-constraint objective, mirroring the rewards in constraints.py.
+    """
+    r   = resolve_rewards(rewards_cfg)
+    raw = data['raw']
+    timeslots = raw['timeslots']
+    trainers  = raw['trainers']
+    courts    = raw['courts']
+    members   = data['members']
+
+    slots_by_day: dict = defaultdict(list)
+    for i, s in enumerate(timeslots):
+        slots_by_day[s['day']].append(i)
+
+    coaching_slots: dict = defaultdict(set)
+    playing_slots: dict  = defaultdict(set)
+
+    for gi, ti, _, si in parsed:
+        coaching_slots[ti].add(si)
+        for t_key in members.get(gi, []):
+            if t_key in data['indices']['t']:
+                ti2 = data['indices']['t'][t_key]
+                playing_slots[ti2].add(si)
+
+    # Day Preference + B2B rewards — player-trainers only (mirrors constraints.py).
+    day_pref          = data.get('day_pref', ['same'] * len(trainers))
+    day_pref_required = data.get('day_pref_required', [False] * len(trainers))
+
+    score = 0.0
+    for ti in range(len(trainers)):
+        c_slots = coaching_slots[ti]
+        p_slots = playing_slots[ti]
+        if not p_slots:
+            continue
+        pref = day_pref[ti]
+
+        # B2B only for trainers who accept coaching on their play day.
+        if pref in ('same', 'any'):
+            for day, day_slots in slots_by_day.items():
+                for i in range(len(day_slots) - 1):
+                    if day_slots[i] in c_slots and day_slots[i + 1] in p_slots:
+                        score += r['REWARD_B2B']
+                    if day_slots[i] in p_slots and day_slots[i + 1] in c_slots:
+                        score += r['REWARD_B2B']
+
+        # Day Preference: one reward per trainer when they coach at least once and
+        # every coaching day satisfies the preference. Required = hard, no reward.
+        if pref == 'any' or day_pref_required[ti] or not c_slots:
+            continue
+        play_day      = timeslots[next(iter(p_slots))]['day']
+        coaching_days = {timeslots[s]['day'] for s in c_slots}
+        met = (coaching_days == {play_day}) if pref == 'same' else (play_day not in coaching_days)
+        if met:
+            score += r['REWARD_DAY_PREF']
+
+    # No Net Height Change reward: per-court consecutive same-gender slots
+    groups = raw['groups']
+    groups_at_court_slot: dict = defaultdict(list)
+    for gi, _, ci, si in parsed:
+        groups_at_court_slot[(ci, si)].append(gi)
+
+    num_c = len(courts)
+    for c in range(num_c):
+        for day, day_slots in slots_by_day.items():
+            for i in range(len(day_slots) - 1):
+                s1 = day_slots[i]
+                s2 = day_slots[i + 1]
+                gi_s1 = groups_at_court_slot.get((c, s1), [])
+                gi_s2 = groups_at_court_slot.get((c, s2), [])
+                if not gi_s1 or not gi_s2:
+                    continue
+                for gender in ('female', 'male'):
+                    if (any(str(groups[gi].get('gender', '')).strip().lower() == gender for gi in gi_s1) and
+                            any(str(groups[gi].get('gender', '')).strip().lower() == gender for gi in gi_s2)):
+                        score += r['REWARD_NET_HEIGHT']
+
+    # No Travel reward: +100 per trainer per day where all activities are at the same venue.
+    # Mirrors constraints.py: fires only when trainer has structural access to 2+ venues that
+    # day (venue_active >= 2 check) AND actually has 2+ active slots (1 activity = no travel).
+    court_venue = data.get('court_venue', {})
+    distinct_venues = {v for v in court_venue.values() if v}
+    if len(distinct_venues) >= 2:
+        quals        = data['quals']
+        t_avail      = data['availability']['trainers']
+        g_avail      = data['availability']['groups']
+        trainer_keys = list(data['indices']['t'].keys())
+        loc_to_idx   = data.get('location_to_idx', {})
+
+        # Group courts by venue for iteration.
+        courts_by_venue: dict = defaultdict(list)
+        for ci, court in enumerate(courts):
+            v = court.get('location', '')
+            if v:
+                courts_by_venue[v].append(ci)
+
+        # Pre-compute per-(trainer, day) structural venue access — mirrors constraints.py's
+        # venue_active dict. Trainers structurally limited to one venue never earn the reward.
+        trainer_day_venues: dict = defaultdict(lambda: defaultdict(set))
+
+        # Coaching paths: trainer qualifies for group, not a member, both available at slot.
+        for gi in range(len(groups)):
+            g_loc = groups[gi].get('location_bitmask', [])
+            for ti in range(len(trainers)):
+                if not quals[ti][gi]:
+                    continue
+                if trainer_keys[ti] in set(members.get(gi, [])):
+                    continue
+                for si, slot in enumerate(timeslots):
+                    if not t_avail[ti][si] or not g_avail[gi][si]:
+                        continue
+                    day = slot['day']
+                    for venue in courts_by_venue:
+                        if venue in trainer_day_venues[ti][day]:
+                            continue
+                        loc_idx = loc_to_idx.get(venue)
+                        if loc_idx is not None:
+                            if g_loc and loc_idx < len(g_loc) and g_loc[loc_idx] == 0:
+                                continue
+                            ts_loc = slot.get('location_bitmask', [])
+                            if ts_loc and loc_idx < len(ts_loc) and ts_loc[loc_idx] == 0:
+                                continue
+                        trainer_day_venues[ti][day].add(venue)
+
+        # Playing paths: trainer's group can be coached at a venue when the group is available
+        # and the venue's location bitmask allows it.
+        for gi, member_ids in members.items():
+            if gi >= len(groups):
+                continue
+            g_loc = groups[gi].get('location_bitmask', [])
+            for t_key in member_ids:
+                if t_key not in data['indices']['t']:
+                    continue
+                ti2 = data['indices']['t'][t_key]
+                for si, slot in enumerate(timeslots):
+                    if not g_avail[gi][si]:
+                        continue
+                    day = slot['day']
+                    for venue in courts_by_venue:
+                        if venue in trainer_day_venues[ti2][day]:
+                            continue
+                        loc_idx = loc_to_idx.get(venue)
+                        if loc_idx is not None:
+                            if g_loc and loc_idx < len(g_loc) and g_loc[loc_idx] == 0:
+                                continue
+                            ts_loc = slot.get('location_bitmask', [])
+                            if ts_loc and loc_idx < len(ts_loc) and ts_loc[loc_idx] == 0:
+                                continue
+                        trainer_day_venues[ti2][day].add(venue)
+
+        # Build actual venue assignments from the schedule.
+        trainer_slot_venue: dict = defaultdict(dict)
+        for gi, ti, ci, si in parsed:
+            venue = courts[ci].get('location', '') if ci < len(courts) else ''
+            trainer_slot_venue[ti][si] = venue
+        for gi, ti, ci, si in parsed:
+            venue = courts[ci].get('location', '') if ci < len(courts) else ''
+            for t_key in members.get(gi, []):
+                if t_key in data['indices']['t']:
+                    ti2 = data['indices']['t'][t_key]
+                    trainer_slot_venue[ti2][si] = venue
+
+        for ti in range(len(trainers)):
+            slot_venue = trainer_slot_venue.get(ti, {})
+            for day, day_slots in slots_by_day.items():
+                # Skip if trainer can't structurally access 2+ venues this day.
+                if len(trainer_day_venues[ti].get(day, set())) < 2:
+                    continue
+                active_slots = [
+                    si for si in day_slots if si in slot_venue and slot_venue[si]
+                ]
+                if len(active_slots) < 2:
+                    continue
+                active_venues = {slot_venue[si] for si in active_slots}
+                if len(active_venues) == 1:
+                    score += r['REWARD_NO_TRAVEL']
+
+    # Adjacent group rewards: B2B + same-day + blocked penalty.
+    multi_location = len({v for v in court_venue.values() if v}) >= 2
+    group_slot: dict = {}   # gi -> si
+    group_venue: dict = {}  # gi -> venue name
+    for gi, _, ci, si in parsed:
+        group_slot[gi] = si
+        group_venue[gi] = courts[ci].get('location', '') if ci < len(courts) else ''
+
+    for gi in range(len(groups)):
+        gender_i = str(groups[gi].get('gender', '')).strip().lower()
+        level_i  = int(groups[gi].get('level', 0))
+        if gender_i not in ('female', 'male') or gi not in group_slot:
+            continue
+        si_i, vi_i = group_slot[gi], group_venue[gi]
+        day_i = timeslots[si_i]['day']
+
+        for gj in range(gi + 1, len(groups)):
+            gender_j = str(groups[gj].get('gender', '')).strip().lower()
+            level_j  = int(groups[gj].get('level', 0))
+            if gender_i != gender_j or abs(level_i - level_j) != 1:
+                continue
+            if gj not in group_slot:
+                continue
+            si_j, vi_j = group_slot[gj], group_venue[gj]
+            if timeslots[si_j]['day'] != day_i:
+                continue
+            if multi_location and vi_i != vi_j:
+                continue
+            if si_i == si_j:
+                continue
+            # Same day + same venue (different slots)
+            score += r['REWARD_ADJ_GROUP_SAME_DAY']
+            day_slots = slots_by_day[day_i]
+            try:
+                idx_i = day_slots.index(si_i)
+                idx_j = day_slots.index(si_j)
+            except ValueError:
+                continue
+            if abs(idx_i - idx_j) == 1:
+                score += r['REWARD_ADJ_GROUP_B2B']
+            # Penalty: member of lower-level group coaching when higher-level group plays,
+            # independent of B2B — fires any time the slots coincide.
+            if level_i < level_j:
+                # gi is higher tier; check if gj's trainer is coaching when gi plays
+                for t_id in members.get(gj, []):
+                    if t_id in data['indices']['t']:
+                        ti_m = data['indices']['t'][t_id]
+                        if si_i in coaching_slots[ti_m]:
+                            score -= r['PENALTY_ADJ_BLOCKED']
+                            break
+            else:
+                # gj is higher tier; check if gi's trainer is coaching when gj plays
+                for t_id in members.get(gi, []):
+                    if t_id in data['indices']['t']:
+                        ti_m = data['indices']['t'][t_id]
+                        if si_j in coaching_slots[ti_m]:
+                            score -= r['PENALTY_ADJ_BLOCKED']
+                            break
+
+    return score
+
+
+def _parse_hhmm(s: str) -> int:
+    """Parses 'HH:MM' to total minutes since midnight."""
+    try:
+        h, m = map(int, s.split(':'))
+        return h * 60 + m
+    except Exception:
+        return 0
+
+
+def _result(
+    feasible: bool,
+    violations: list,
+    score: Optional[float],
+    best_bound: Optional[float],
+) -> dict:
+    absolute_gap: Optional[float] = None
+    gap_percent: Optional[float]  = None
+
+    if score is not None and best_bound is not None:
+        absolute_gap = round(best_bound - score, 4)
+        gap_percent  = round((absolute_gap / best_bound) * 100, 2) if best_bound != 0 else 0.0
+
+    return {
+        'feasible':     feasible,
+        'score':        score,
+        'best_bound':   best_bound,
+        'absolute_gap': absolute_gap,
+        'gap_percent':  gap_percent,
+        'violations':   violations,
+    }
