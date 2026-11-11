@@ -9,3 +9,6 @@ ortools
 
 # Utilities
 python-dotenv
+
+# Saved schedules (SQLite)
+platformdirs

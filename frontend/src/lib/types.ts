@@ -8,7 +8,7 @@ export interface RewardItem {
 
 export type RewardConfig = RewardItem[];
 
-// User-facing entity shapes (what we store in localStorage and edit in the UI).
+// User-facing entity shapes (what we save with a schedule and edit in the UI).
 // IDs are not part of these — they are generated automatically before sending
 // to the backend (see lib/api.ts).
 
@@ -109,6 +109,22 @@ export interface JobStatus {
   result: ScheduleEntry[] | null;
   rewardConfig?: RewardConfig;
 }
+
+// A saved .doubleshift file, as listed by the backend. The file name is the schedule name.
+export interface ScheduleSummary {
+  path: string;
+  name: string;
+  modified_at: string;
+}
+
+// What a .doubleshift file holds. Each part is null until it has first been saved.
+export interface ScheduleContents {
+  data: ScheduleData | null;
+  reward_config: RewardConfig | null;
+  last_run: JobStatus | null;
+}
+
+export type SavedSchedule = ScheduleSummary & ScheduleContents;
 
 export interface VerifyResult {
   feasible: boolean;

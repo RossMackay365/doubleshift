@@ -1,8 +1,8 @@
 'use client';
-import { useState, useEffect, useMemo, useCallback, startTransition } from 'react';
-import { Save, CheckCircle, Trash2 } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Trash2 } from 'lucide-react';
 import EditableTable, { Column } from '@/components/EditableTable';
-import { saveData, loadData, parseBitmask } from '@/lib/storage';
+import { useSchedule } from '@/components/ScheduleProvider';
 import { ScheduleData, TravelTime } from '@/lib/types';
 
 type Tab = 'locations' | 'timeslots' | 'groups' | 'trainers';
@@ -38,6 +38,14 @@ const BASE_COLUMNS: Record<Tab, Column[]> = {
 };
 
 type RowMap = Record<Tab, Record<string, string>[]>;
+
+// Parse a bitmask typed or pasted as "1,0,1", "1 0 1" or "101".
+function parseBitmask(s: string): number[] {
+  if (!s.trim()) return [];
+  if (s.includes(',')) return s.split(',').map(v => (parseInt(v.trim(), 10) || 0));
+  if (s.includes(' ')) return s.split(/\s+/).map(v => (parseInt(v, 10) || 0));
+  return s.split('').map(v => (parseInt(v, 10) || 0));
+}
 
 function toGender(v: string): 'female' | 'male' {
   return (v ?? '').trim().toLowerCase() === 'male' ? 'male' : 'female';
@@ -352,38 +360,34 @@ const INIT_ROWS = (): RowMap => ({
   trainers:  [EMPTY_ROW.trainers()],
 });
 
+// The table rows for a schedule's stored data, keeping the empty starting row for
+// any tab that has no data yet (e.g. a new schedule).
+function initialRows(data: ScheduleData | null): RowMap {
+  const empty = INIT_ROWS();
+  if (!data) return empty;
+  const loaded = dataToRows(data);
+  return {
+    locations: loaded.locations.length ? loaded.locations : empty.locations,
+    timeslots: loaded.timeslots.length ? loaded.timeslots : empty.timeslots,
+    groups:    loaded.groups.length    ? loaded.groups    : empty.groups,
+    trainers:  loaded.trainers.length  ? loaded.trainers  : empty.trainers,
+  };
+}
+
 export default function DataPage() {
-  const [tab, setTab]                       = useState<Tab>('locations');
-  const [rows, setRows]                     = useState<RowMap>(INIT_ROWS);
-  const [travelTimes, setTravelTimes]       = useState<TravelTime[]>([]);
-  const [savedSnapshot, setSavedSnapshot]   = useState<RowMap>(INIT_ROWS);
-  const [savedTravelTimes, setSavedTravelTimes] = useState<TravelTime[]>([]);
+  const { data, setData } = useSchedule();
+  // The rows are kept here (they hold half-typed values); every edit is passed up to
+  // the open schedule as data, which the header's Save writes to the file.
+  const [initial] = useState(() => ({ rows: initialRows(data), travelTimes: data?.travelTimes ?? [] }));
+  const [tab, setTab]                 = useState<Tab>('locations');
+  const [rows, setRows]               = useState<RowMap>(initial.rows);
+  const [travelTimes, setTravelTimes] = useState<TravelTime[]>(initial.travelTimes);
 
   useEffect(() => {
-    const stored = loadData();
-    if (!stored) return;
-    const loaded = dataToRows(stored);
-    const merge = (r: RowMap): RowMap => ({
-      locations: loaded.locations.length ? loaded.locations : r.locations,
-      timeslots: loaded.timeslots.length ? loaded.timeslots : r.timeslots,
-      groups:    loaded.groups.length    ? loaded.groups    : r.groups,
-      trainers:  loaded.trainers.length  ? loaded.trainers  : r.trainers,
-    });
-    const tt = stored.travelTimes ?? [];
-    startTransition(() => {
-      setRows(merge);
-      setSavedSnapshot(merge);
-      setTravelTimes(tt);
-      setSavedTravelTimes(tt);
-    });
-  }, []);
-
-  const isModified = useMemo(
-    () =>
-      JSON.stringify(rows) !== JSON.stringify(savedSnapshot) ||
-      JSON.stringify(travelTimes) !== JSON.stringify(savedTravelTimes),
-    [rows, savedSnapshot, travelTimes, savedTravelTimes],
-  );
+    // Untouched since the page opened: nothing to pass up (avoids marking it modified).
+    if (rows === initial.rows && travelTimes === initial.travelTimes) return;
+    setData({ ...rowsToData(rows), travelTimes });
+  }, [rows, travelTimes, initial, setData]);
 
   const timeslotList = useMemo(
     () => rows.timeslots.filter(r => r.day).map(r => ({ day: r.day, start: r.start })),
@@ -489,23 +493,6 @@ export default function DataPage() {
     trainers:  [...BASE_COLUMNS.trainers, trainerGroupColumn, dayPrefColumn, requiredColumn, availabilityColumn],
   }), [availabilityColumn, trainerGroupColumn, locationColumn, dayPrefColumn, requiredColumn]);
 
-  const handleSave = useCallback(() => {
-    saveData({ ...rowsToData(rows), travelTimes });
-    setSavedSnapshot(rows);
-    setSavedTravelTimes(travelTimes);
-  }, [rows, travelTimes]);
-
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        handleSave();
-      }
-    }
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleSave]);
-
   function clearAll() {
     setRows(INIT_ROWS());
     setTravelTimes([]);
@@ -521,12 +508,6 @@ export default function DataPage() {
       <div className="mb-8 flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-gray-900">Input Data</h1>
         <div className="flex items-center gap-2.5">
-          {isModified && (
-            <span className="flex shrink-0 items-center gap-1.5 text-sm font-medium text-amber-600 mr-1">
-              <span className="inline-block h-2 w-2 rounded-full bg-amber-400" />
-              Unsaved changes
-            </span>
-          )}
           <button
             onClick={clearAll}
             className="flex items-center gap-2 rounded-md border border-gray-200 px-5 py-2.5 text-base font-medium text-gray-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600 transition-colors"
@@ -540,15 +521,6 @@ export default function DataPage() {
           >
             <Trash2 size={17} />
             Clear tab
-          </button>
-          <button
-            onClick={handleSave}
-            className={`flex items-center gap-2 rounded-md px-5 py-2.5 text-base font-medium transition-colors ${
-              isModified ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-green-50 text-green-700'
-            }`}
-          >
-            {isModified ? <Save size={17} /> : <CheckCircle size={17} />}
-            {isModified ? 'Save' : 'Saved'}
           </button>
         </div>
       </div>

@@ -1,30 +1,10 @@
-import { ScheduleData, JobStatus, ScheduleEntry, VerifyResult, RewardConfig, expandLocations } from './types';
+import {
+  ScheduleData, JobStatus, ScheduleEntry, VerifyResult, RewardConfig, expandLocations,
+  ScheduleSummary, ScheduleContents, SavedSchedule,
+} from './types';
 import { rewardConfigToPayload } from './rewardConfig';
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_API_URL ?? 'http://localhost:8000';
-
-function getToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return sessionStorage.getItem('auth_token');
-}
-
-function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { 'Authorization': `Bearer ${token}` } : {};
-}
-
-async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
-  const res = await fetch(url, {
-    ...options,
-    headers: { ...options.headers as Record<string, string>, ...authHeaders() },
-  });
-  if (res.status === 401) {
-    sessionStorage.removeItem('auth_token');
-    window.location.href = '/login';
-    throw new Error('Unauthorized');
-  }
-  return res;
-}
 
 // Auto-generate IDs, expand locations → courts, resolve trainer.groupID name → ID.
 function withIDs(data: ScheduleData) {
@@ -51,23 +31,12 @@ function withIDs(data: ScheduleData) {
   return { groups, trainers, timeslots, courts, travel_times, location_names };
 }
 
-export async function login(password: string): Promise<string> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
-  });
-  if (!res.ok) throw new Error('Invalid password');
-  const data = await res.json();
-  return data.token;
-}
-
 export async function startOptimization(data: ScheduleData, rewardConfig?: RewardConfig): Promise<{ job_id: string }> {
   const payload = {
     ...withIDs(data),
     ...(rewardConfig ? { reward_config: rewardConfigToPayload(rewardConfig) } : {}),
   };
-  const res = await fetchWithAuth(`${API_BASE}/optimize`, {
+  const res = await fetch(`${API_BASE}/api/optimize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -77,13 +46,13 @@ export async function startOptimization(data: ScheduleData, rewardConfig?: Rewar
 }
 
 export async function getJobStatus(jobId: string): Promise<JobStatus> {
-  const res = await fetchWithAuth(`${API_BASE}/status/${jobId}`);
+  const res = await fetch(`${API_BASE}/api/status/${jobId}`);
   if (!res.ok) throw new Error(`Status ${res.status}`);
   return res.json();
 }
 
 export async function cancelOptimization(jobId: string): Promise<void> {
-  const res = await fetchWithAuth(`${API_BASE}/cancel/${jobId}`, { method: 'POST' });
+  const res = await fetch(`${API_BASE}/api/cancel/${jobId}`, { method: 'POST' });
   if (!res.ok) throw new Error(await res.text());
 }
 
@@ -98,11 +67,75 @@ export async function verifySchedule(
     schedule,
     ...(rewardConfig ? { reward_config: rewardConfigToPayload(rewardConfig) } : {}),
   };
-  const res = await fetchWithAuth(`${API_BASE}/verify`, {
+  const res = await fetch(`${API_BASE}/api/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
+}
+
+// --- Saved schedules (.doubleshift files, identified by their path) ---
+
+// Throw the backend's error message (its `detail`) rather than raw JSON.
+async function throwError(res: Response): Promise<never> {
+  const body = await res.json().catch(() => null);
+  throw new Error(body?.detail ?? res.statusText);
+}
+
+export async function listSchedules(): Promise<{ folder: string; schedules: ScheduleSummary[] }> {
+  const res = await fetch(`${API_BASE}/api/schedules`);
+  if (!res.ok) await throwError(res);
+  return res.json();
+}
+
+export async function listRecentSchedules(): Promise<ScheduleSummary[]> {
+  const res = await fetch(`${API_BASE}/api/recent`);
+  if (!res.ok) await throwError(res);
+  return res.json();
+}
+
+export async function createSchedule(name: string): Promise<ScheduleSummary> {
+  const res = await fetch(`${API_BASE}/api/schedules`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) await throwError(res);
+  return res.json();
+}
+
+// Copies a .doubleshift file chosen in the browser into the schedules folder.
+export async function importSchedule(file: File): Promise<ScheduleSummary> {
+  let parsed;
+  try {
+    parsed = JSON.parse(await file.text());
+  } catch {
+    throw new Error('This file is not a DoubleShift schedule.');
+  }
+  const res = await fetch(`${API_BASE}/api/schedules/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: file.name.replace(/\.doubleshift$/i, ''), file: parsed }),
+  });
+  if (!res.ok) await throwError(res);
+  return res.json();
+}
+
+// Returns null if the file doesn't exist. Also marks it as recently opened.
+export async function getSchedule(path: string): Promise<SavedSchedule | null> {
+  const res = await fetch(`${API_BASE}/api/schedule?path=${encodeURIComponent(path)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) await throwError(res);
+  return res.json();
+}
+
+export async function saveSchedule(path: string, contents: ScheduleContents): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/schedule?path=${encodeURIComponent(path)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(contents),
+  });
+  if (!res.ok) await throwError(res);
 }

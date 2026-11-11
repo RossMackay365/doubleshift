@@ -1,42 +1,73 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { CheckCircle, House, Loader2, Play, Save, Table2 } from 'lucide-react';
+import { useSchedule } from '@/components/ScheduleProvider';
 
+// Header for an open schedule: its name (with an unsaved-changes dot), the Data /
+// Scheduler tabs, Save and Home. Status indicators never change the width of the
+// buttons, so nothing on the right shifts.
 export default function Nav() {
   const path = usePathname();
-  const [authed, setAuthed] = useState(false);
-
-  useEffect(() => {
-    setAuthed(!!sessionStorage.getItem('auth_token'));
-  }, [path]);
+  const { path: filePath, name, isModified, save, running } = useSchedule();
 
   const links = [
-    { href: '/data', label: 'Data' },
-    { href: '/run', label: 'Run Scheduler' },
+    { href: '/data', label: 'Data', icon: <Table2 size={20} /> },
+    {
+      href: '/run',
+      label: 'Scheduler',
+      // Spinner while a run is in progress, so it's visible from the Data tab too.
+      icon: running ? <Loader2 size={20} className="animate-spin" /> : <Play size={20} />,
+    },
   ];
 
   return (
     <nav className="border-b border-gray-200 bg-white">
-      <div className="mx-auto max-w-7xl px-10 flex h-24 items-center justify-between">
-        <span className="text-2xl font-semibold text-gray-800 tracking-tight">Schedule Optimiser</span>
-        {authed && (
-          <div className="flex gap-2">
-            {links.map(({ href, label }) => (
-              <Link
-                key={href}
-                href={href}
-                className={`rounded-md px-5 py-3 text-lg font-medium transition-colors ${
-                  path.startsWith(href)
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
-                }`}
-              >
-                {label}
-              </Link>
-            ))}
-          </div>
-        )}
+      <div className="mx-auto max-w-7xl px-10 flex h-24 items-center justify-between gap-6">
+        <div className="flex min-w-0 items-baseline gap-3">
+          <Link href="/" className="text-2xl font-semibold text-gray-800 tracking-tight">DoubleShift</Link>
+          <span className="truncate text-lg text-gray-500">{name}</span>
+          {isModified && (
+            <span className="flex shrink-0 items-center gap-1.5 text-sm font-medium text-amber-600">
+              <span className="inline-block h-2 w-2 rounded-full bg-amber-400" />
+              Unsaved changes
+            </span>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {links.map(({ href, label, icon }) => (
+            <Link
+              key={href}
+              href={`${href}?file=${encodeURIComponent(filePath)}`}
+              className={`flex items-center gap-2 rounded-md px-5 py-3 text-lg font-medium transition-colors ${
+                path.startsWith(href)
+                  ? 'bg-blue-50 text-blue-700'
+                  : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+              }`}
+            >
+              {icon}
+              {label}
+            </Link>
+          ))}
+          <div className="mx-3 h-8 w-px bg-gray-200" />
+          <button
+            onClick={save}
+            title="Save (Ctrl+S)"
+            className={`flex w-32 items-center justify-center gap-2 rounded-md py-2.5 text-base font-medium transition-colors ${
+              isModified ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-green-50 text-green-700'
+            }`}
+          >
+            {isModified ? <Save size={17} /> : <CheckCircle size={17} />}
+            {isModified ? 'Save' : 'Saved'}
+          </button>
+          <Link
+            href="/"
+            className="flex items-center gap-2 rounded-md px-4 py-3 text-lg font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors"
+          >
+            <House size={20} />
+            Home
+          </Link>
+        </div>
       </div>
     </nav>
   );

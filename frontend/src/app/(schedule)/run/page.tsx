@@ -1,19 +1,16 @@
 'use client';
-import { useState, useEffect, useRef, useMemo, startTransition } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Play, Square, AlertCircle, CheckCircle2, Loader2, Clock,
   Pencil, X, ShieldCheck, RotateCcw, Save, BarChart2, Settings,
 } from 'lucide-react';
-import { loadData, saveJobStatus, loadJobStatus, saveRewardConfig, loadRewardConfig } from '@/lib/storage';
-import { startOptimization, getJobStatus, cancelOptimization, verifySchedule } from '@/lib/api';
-import { JobStatus, ScheduleData, ScheduleEntry, VerifyResult, RewardConfig, expandLocations, Court } from '@/lib/types';
+import { verifySchedule } from '@/lib/api';
+import { ScheduleEntry, VerifyResult, RewardConfig, expandLocations, Court } from '@/lib/types';
 import ScheduleGrid from '@/components/ScheduleGrid';
 import ScoreBreakdownPanel from '@/components/ScoreBreakdownPanel';
 import ConfigPanel from '@/components/ConfigPanel';
+import { useSchedule } from '@/components/ScheduleProvider';
 import { computeScoreBreakdown } from '@/lib/scoreBreakdown';
-
-const POLL_MS = 1000;
-const DONE = new Set(['completed', 'failed', 'cancelled']);
 
 // Overlay the optimality gap onto a verify result using the solver's best_bound,
 // which the client already holds. Keeps Verify independent of any server-side
@@ -26,16 +23,14 @@ function withGap(result: VerifyResult, bound: number | null): VerifyResult {
 }
 
 export default function RunPage() {
-  const [data, setData] = useState<ScheduleData | null>(null);
-  const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
+  // Data, reward settings, the last run and any run in progress belong to the open
+  // schedule (ScheduleProvider), so a run keeps going while switching tabs.
+  const {
+    data, rewardConfig, setRewardConfig, lastRun, setLastRun,
+    activeRun, running, cancelling, startedAt, runError, clearRunError, startRun, cancelRun,
+  } = useSchedule();
+  const jobStatus = running ? activeRun : lastRun;
   const [error, setError] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Wall-clock start of the current run, for a live elapsed counter that ticks
-  // even while the solver reports no new solutions (unlike stats.elapsed_seconds,
-  // which only updates when an improved solution is found).
-  const [startedAt, setStartedAt] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   // Edit mode state
@@ -47,20 +42,6 @@ export default function RunPage() {
 
   // Config panel state
   const [configOpen, setConfigOpen] = useState(false);
-  const [rewardConfig, setRewardConfig] = useState<RewardConfig>([]);
-  const runRewardConfigRef = useRef<RewardConfig>([]);
-
-  useEffect(() => {
-    startTransition(() => {
-      setData(loadData());
-      setRewardConfig(loadRewardConfig());
-      const saved = loadJobStatus();
-      if (saved) {
-        setJobStatus(saved);
-        if (saved.rewardConfig) runRewardConfigRef.current = saved.rewardConfig;
-      }
-    });
-  }, []);
 
   // Tick a clock while a run is in progress so the live elapsed counter advances.
   useEffect(() => {
@@ -71,84 +52,14 @@ export default function RunPage() {
 
   function handleRewardConfigChange(config: RewardConfig) {
     setRewardConfig(config);
-    saveRewardConfig(config);
   }
 
-  function stopPolling() {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  }
-
-  async function poll(jobId: string) {
-    try {
-      const status = await getJobStatus(jobId);
-      const withConfig = { ...status, rewardConfig: runRewardConfigRef.current };
-      setJobStatus(withConfig);
-      saveJobStatus(withConfig);
-      if (DONE.has(status.status)) {
-        stopPolling();
-        setRunning(false);
-        setCancelling(false);
-      }
-    } catch (e) {
-      setError(String(e));
-      stopPolling();
-      setRunning(false);
-      setCancelling(false);
-    }
-  }
-
-  async function handleRun() {
-    if (!data) return;
+  function handleRun() {
     setError(null);
-    setJobStatus(null);
-    setRunning(true);
-    setCancelling(false);
     setEditMode(false);
     setVerifyResult(null);
     setShowBreakdown(false);
-    stopPolling();
-    setStartedAt(Date.now());
-    setNowMs(Date.now());
-    try {
-      runRewardConfigRef.current = rewardConfig;
-      const { job_id } = await startOptimization(data, rewardConfig);
-      const initialStatus: JobStatus = {
-        job_id,
-        status: 'pending',
-        stats: {} as JobStatus['stats'],
-        result: null,
-        rewardConfig,
-      };
-      setJobStatus(initialStatus);
-      saveJobStatus(initialStatus);
-      intervalRef.current = setInterval(() => poll(job_id), POLL_MS);
-      poll(job_id);
-    } catch (e) {
-      setError(String(e));
-      setRunning(false);
-    }
-  }
-
-  async function handleCancel() {
-    const jobId = jobStatus?.job_id;
-    if (!jobId) {
-      // No job to cancel on the server — just stop the client-side polling.
-      stopPolling();
-      setRunning(false);
-      return;
-    }
-    setCancelling(true);
-    try {
-      await cancelOptimization(jobId);
-      // Keep polling: the backend flips the job to 'cancelled' (a terminal
-      // state) and the poll loop then stops and renders the best-so-far result.
-    } catch (e) {
-      setError(String(e));
-      setCancelling(false);
-    }
+    startRun();
   }
 
   function handleEnterEdit() {
@@ -183,9 +94,7 @@ export default function RunPage() {
           optimal: vr.gap_percent === 0,
         }
       : jobStatus.stats;
-    const updated = { ...jobStatus, result: editableSchedule, stats: newStats };
-    setJobStatus(updated);
-    saveJobStatus(updated);
+    setLastRun({ ...jobStatus, result: editableSchedule, stats: newStats });
     setEditMode(false);
     setVerifyResult(null);
   }
@@ -208,32 +117,6 @@ export default function RunPage() {
     }
   }
 
-  useEffect(() => () => stopPolling(), []);
-
-  useEffect(() => {
-    if (!editMode) return;
-    async function onKeyDown(e: KeyboardEvent) {
-      if (!((e.ctrlKey || e.metaKey) && e.key === 's')) return;
-      e.preventDefault();
-      if (!data) return;
-      setVerifying(true);
-      setVerifyResult(null);
-      setError(null);
-      try {
-        const knownBound = jobStatus?.stats?.best_bound ?? jobStatus?.stats?.final_score ?? null;
-      const result = withGap(await verifySchedule(data, editableSchedule, activeRewardConfig), knownBound);
-        setVerifyResult(result);
-        if (result.feasible) handleSaveEdits(result);
-      } catch (err) {
-        setError(String(err));
-      } finally {
-        setVerifying(false);
-      }
-    }
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [editMode, data, editableSchedule, jobStatus, activeRewardConfig]);
-
   const courts = useMemo<Court[]>(
     () => expandLocations(data?.locations ?? []),
     [data?.locations],
@@ -244,6 +127,29 @@ export default function RunPage() {
     () => editMode && JSON.stringify(editableSchedule) !== JSON.stringify(jobStatus?.result ?? []),
     [editMode, editableSchedule, jobStatus],
   );
+
+  // In edit mode, ask before leaving this page (Data tab, Home, closing the window)
+  // with edits that haven't been applied with "Save changes".
+  useEffect(() => {
+    if (!isModified) return;
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+    }
+    function onLinkClick(e: MouseEvent) {
+      const link = (e.target as HTMLElement).closest('a');
+      if (!link || link.pathname === window.location.pathname) return;
+      if (!confirm(`You have edits that haven't been applied with "Save changes". Leave without applying them?`)) {
+        e.preventDefault();
+        e.stopImmediatePropagation(); // don't also show the schedule's own leave warning
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload);
+    document.addEventListener('click', onLinkClick, true);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      document.removeEventListener('click', onLinkClick, true);
+    };
+  }, [isModified]);
   const breakdownSchedule = editMode ? editableSchedule : (jobStatus?.result ?? []);
   const breakdown = useMemo(
     () => (!showBreakdown || !data || breakdownSchedule.length === 0)
@@ -260,7 +166,7 @@ export default function RunPage() {
   const timeLimit = stats?.time_limit_seconds ?? null;
   // Live elapsed while running (wall clock); the solver's reported time once done.
   const liveElapsed = running && startedAt != null
-    ? (nowMs - startedAt) / 1000
+    ? Math.max(0, (nowMs - startedAt) / 1000)
     : stats?.elapsed_seconds ?? null;
   const nearTimeout = running && timeLimit != null && liveElapsed != null && liveElapsed >= timeLimit;
   const inProgress = running && status !== 'completed';
@@ -288,7 +194,7 @@ export default function RunPage() {
             </p>
           )}
           {!data && (
-            <p className="mt-1 text-base text-amber-600">No data saved.</p>
+            <p className="mt-1 text-base text-amber-600">No data yet. Add it on the Data tab.</p>
           )}
         </div>
         <div className="flex flex-wrap gap-2.5 ml-auto">
@@ -304,7 +210,7 @@ export default function RunPage() {
               </button>
               {running && (
                 <button
-                  onClick={handleCancel}
+                  onClick={cancelRun}
                   disabled={cancelling}
                   className="flex items-center gap-2 rounded-md border border-red-200 bg-white px-5 py-2.5 text-base font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
                 >
@@ -374,11 +280,11 @@ export default function RunPage() {
         </div>
       )}
 
-      {error && (
+      {(error || runError) && (
         <div className="mb-5 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-4 text-base text-red-700">
           <AlertCircle size={17} className="mt-0.5 shrink-0" />
-          <span className="flex-1">{error}</span>
-          <button onClick={() => setError(null)} className="ml-2 shrink-0 text-red-400 hover:text-red-600 transition-colors">
+          <span className="flex-1">{error ?? runError}</span>
+          <button onClick={() => { setError(null); clearRunError(); }} className="ml-2 shrink-0 text-red-400 hover:text-red-600 transition-colors">
             <X size={16} />
           </button>
         </div>

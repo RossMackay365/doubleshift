@@ -1,6 +1,6 @@
-# Schedule Optimiser
+# DoubleShift: Training Scheduler
 
-A full-stack web app for scheduling tennis training sessions. Given groups, trainers, courts, and timeslots, it uses constraint programming to produce a schedule that satisfies hard rules (qualifications, availability, court capacity, travel time) while maximising soft objectives (trainer convenience, session adjacency).
+An app for scheduling training sessions. Given groups, trainers, courts, and timeslots, it uses constraint programming to produce a schedule that satisfies hard rules (qualifications, availability, court capacity, travel time) while maximising soft objectives (trainer convenience, session adjacency).
 
 ## How It Works
 
@@ -8,16 +8,15 @@ A full-stack web app for scheduling tennis training sessions. Given groups, trai
 2. **Run** — submit to the solver; intermediate results appear in real time as the solver improves its solution
 3. **Edit** — drag and drop sessions, swap trainers, then verify before saving
 
-The frontend persists input data in `localStorage`. The backend runs [Google OR-Tools CP-SAT](https://developers.google.com/optimization/reference/python/sat/python/cp_model) in a background thread and exposes progress via a polling endpoint.
+Each schedule (input data, reward settings and the last run) is saved as a `.doubleshift` file in `Documents\DoubleShift` (or `./schedules` when running with Docker), so it can be backed up or shared like any document. The backend runs [Google OR-Tools CP-SAT](https://developers.google.com/optimization/reference/python/sat/python/cp_model) in a background thread and exposes progress via a polling endpoint.
 
 ## Quick Start
 
 ```bash
-# 1. Create the backend config
-echo "APP_PASSWORD=yourpassword" > backend/.env
+# Optional: override solver settings (e.g. MAX_SOLVE_TIME)
+cp backend/.env.example backend/.env
 
-# 2. Start both services
-docker-compose up
+docker compose up
 ```
 
 | Service  | URL                    |
@@ -25,8 +24,6 @@ docker-compose up
 | Frontend | http://localhost:3000  |
 | Backend  | http://localhost:8000  |
 | API docs | http://localhost:8000/docs |
-
-Log in with the password you set in `backend/.env`.
 
 ## Running Without Docker
 
@@ -36,12 +33,12 @@ See [backend/README.md](backend/README.md) and [frontend/README.md](frontend/REA
 
 ```
 schedule-optimiser/
-├── backend/            # FastAPI + OR-Tools — solver, constraint checking, auth
+├── backend/            # FastAPI + OR-Tools — solver, constraint checking
 ├── frontend/           # Next.js — data entry, schedule grid, editing UI
 └── docker-compose.yml  # local dev orchestration
 ```
 
-The two services communicate over HTTP. The frontend sends a JSON payload to `POST /optimize`, receives a `job_id`, and polls `GET /status/{job_id}` until the solver finishes or times out. A separate `POST /verify` endpoint lets users validate hand-edited schedules against all constraints.
+The two services communicate over HTTP. The frontend sends a JSON payload to `POST /api/optimize`, receives a `job_id`, and polls `GET /api/status/{job_id}` until the solver finishes or times out. A separate `POST /api/verify` endpoint lets users validate hand-edited schedules against all constraints.
 
 ## Key Concepts
 

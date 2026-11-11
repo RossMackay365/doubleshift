@@ -30,6 +30,9 @@ backend/venv/
 backend/env/
 backend/.venv/
 
+# Test Schedule Directory
+/schedules/
+
 # --- OS & Environment ---
 .DS_Store
 Thumbs.db

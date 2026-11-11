@@ -22,11 +22,11 @@ backend/
 │   ├── verify.py       # Validates user-edited schedules against all constraints
 │   ├── diagnostics.py  # Post-INFEASIBLE analysis: diagnoses likely causes
 │   ├── config.py       # Default reward values and merge logic
-│   ├── state.py        # In-memory job state (thread-safe)
-│   └── auth.py         # Password-based auth, Bearer token validation
+│   ├── schedules.py    # Saved schedules (.doubleshift files) and the recently opened list
+│   └── state.py        # In-memory job state (thread-safe)
 ├── requirements.txt
 ├── Dockerfile
-└── .env                # Not committed — create this yourself (see below)
+└── .env                # Optional, not committed — copy from .env.example
 ```
 
 ## Running Locally
@@ -37,8 +37,8 @@ python -m venv venv
 source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-# Create .env with at minimum:
-echo "APP_PASSWORD=yourpassword" > .env
+# Optional: copy the example env file to override defaults
+cp .env.example .env
 
 uvicorn app.main:app --reload --port 8000
 ```
@@ -49,33 +49,41 @@ API docs are available at http://localhost:8000/docs once running.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `APP_PASSWORD` | Yes | — | Password users enter on the login page |
-| `MAX_SOLVE_TIME` | No | `60` | Solver time limit in seconds |
+| `MAX_SOLVE_TIME` | No | `120` | Solver time limit in seconds |
+| `DOUBLESHIFT_SCHEDULES_DIR` | No | `Documents\DoubleShift` | Where `.doubleshift` files are saved |
+| `DOUBLESHIFT_DATA_DIR` | No | per-user app data folder | Where the recently opened list is kept |
 
 ## API Reference
 
-All endpoints except `/auth/login` require an `Authorization: Bearer <token>` header.
-
-### `POST /auth/login`
-```json
-{ "password": "..." }
-```
-Returns `{ "token": "..." }`. Tokens are stored in memory and survive until the server restarts.
-
-### `POST /optimize` → 202
+### `POST /api/optimize` → 202
 Starts a background solve job. Returns `{ "job_id": "..." }`.
 
 Request body: groups, trainers, courts, timeslots, optional travel times and reward config overrides.
 
-### `GET /status/{job_id}`
+### `GET /api/status/{job_id}`
 Polls job progress. Returns the current status, solver statistics, and the best schedule found so far.
 
 Status lifecycle: `pending → processing → solving → completed | failed`
 
 Stats include `current_score`, `best_bound`, `gap_percent`, `solutions_found`, `elapsed_seconds`.
 
-### `POST /verify`
-Validates a (potentially user-edited) schedule against all hard constraints and returns its soft-constraint score. Accepts an optional `job_id` to compare against the original solver's best bound.
+### `POST /api/cancel/{job_id}`
+Stops a running job, keeping the best schedule found so far.
+
+### `POST /api/verify`
+Validates a (potentially user-edited) schedule against all hard constraints and returns its soft-constraint score.
+
+### Saved schedules
+Each schedule is a `.doubleshift` file (JSON: `version`, `data`, `reward_config`, `last_run`) identified by its full path; the file name is the schedule name. `data`, `reward_config` and `last_run` are stored exactly as the frontend sends them. Files are written to a temporary file and then swapped in, so a crash never leaves a half-written schedule.
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/schedules` | `{ folder, schedules }`: files in the schedules folder, most recently modified first |
+| `GET /api/recent` | Recently opened files (moved or deleted ones are skipped) |
+| `POST /api/schedules` | Create `<name>.doubleshift`: `{ name }`. 409 if the name is taken |
+| `POST /api/schedules/import` | Copy an uploaded file into the folder: `{ name, file }`. Renames to `name (2)` if taken |
+| `GET /api/schedule?path=` | Read a file and add it to the recent list |
+| `PUT /api/schedule?path=` | Write the whole file: `{ data, reward_config, last_run }` |
 
 ## Solver Design
 
@@ -115,10 +123,6 @@ Frontend payload (JSON)
   → SchedulerCallback  (stream intermediate results to state.py)
   → state.py           (in-memory store, polled by /status)
 ```
-
-## Authentication
-
-Single shared password stored in `APP_PASSWORD`. On successful login, a random UUID token is generated and stored in a server-side in-memory set. Tokens never expire; they are cleared on server restart. This is intentionally simple — the app is designed for trusted internal use.
 
 ## Notes for Contributors
 

@@ -1,12 +1,13 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends
+from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uuid
 from .schemas import OptimizeRequest, JobStatusResponse, VerifyRequest, VerifyResponse
 from .state import get_job, update_job, get_process
 from .solver import run_optimization_task
 from .verify import verify_schedule
-from .auth import login as auth_login, require_auth
+from . import schedules
 from pydantic import BaseModel
+from typing import Any
 from dotenv import load_dotenv
 import logging
 
@@ -17,7 +18,9 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
 
-app = FastAPI(title="Schedule Optimizer API")
+app = FastAPI(title="DoubleShift API")
+
+schedules.init()
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,16 +30,7 @@ app.add_middleware(
 )
 
 
-class LoginRequest(BaseModel):
-    password: str
-
-
-@app.post("/auth/login")
-async def login(request: LoginRequest):
-    token = auth_login(request.password)
-    return {"token": token}
-
-@app.post("/optimize", status_code=202, dependencies=[Depends(require_auth)])
+@app.post("/api/optimize", status_code=202)
 async def optimize(request: OptimizeRequest, background_tasks: BackgroundTasks):
     job_id = str(uuid.uuid4())
     update_job(job_id, status="pending")
@@ -56,7 +50,7 @@ async def optimize(request: OptimizeRequest, background_tasks: BackgroundTasks):
     return {"job_id": job_id, "message": "Optimization task started"}
 
 
-@app.post("/cancel/{job_id}", dependencies=[Depends(require_auth)])
+@app.post("/api/cancel/{job_id}")
 async def cancel(job_id: str):
     job = get_job(job_id)
     if not job:
@@ -76,7 +70,7 @@ async def cancel(job_id: str):
     return {"job_id": job_id, "status": "cancelled", "message": "Cancellation requested"}
 
 
-@app.get("/status/{job_id}", response_model=JobStatusResponse, dependencies=[Depends(require_auth)])
+@app.get("/api/status/{job_id}", response_model=JobStatusResponse)
 async def get_status(job_id: str):
     job_data = get_job(job_id)
     if not job_data:
@@ -85,7 +79,7 @@ async def get_status(job_id: str):
     return {"job_id": job_id, **job_data}
 
 
-@app.post("/verify", response_model=VerifyResponse, dependencies=[Depends(require_auth)])
+@app.post("/api/verify", response_model=VerifyResponse)
 async def verify(request: VerifyRequest):
     raw_data = {
         "groups":         [g.model_dump() for g in request.groups],
@@ -106,3 +100,72 @@ async def verify(request: VerifyRequest):
         return result
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+
+# --- Saved schedules (.doubleshift files) ---
+# A schedule is identified by its file path. data, reward_config and last_run are
+# stored exactly as the frontend sends them.
+
+class ScheduleCreate(BaseModel):
+    name: str
+
+
+class ScheduleContents(BaseModel):
+    data: Any = None
+    reward_config: Any = None
+    last_run: Any = None
+
+
+class ScheduleImport(BaseModel):
+    name: str
+    file: Any  # the parsed contents of the .doubleshift file
+
+
+@app.get("/api/schedules")
+def list_schedules():
+    return {"folder": schedules.SCHEDULES_DIR, "schedules": schedules.list_schedules()}
+
+
+@app.get("/api/recent")
+def recent_schedules():
+    return schedules.recent_schedules()
+
+
+@app.post("/api/schedules", status_code=201)
+def create_schedule(request: ScheduleCreate):
+    try:
+        return schedules.create_schedule(request.name)
+    except FileExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.post("/api/schedules/import", status_code=201)
+def import_schedule(request: ScheduleImport):
+    """Copy an uploaded file into the schedules folder (used when running in a browser)."""
+    try:
+        contents = schedules.validate_contents(request.file)
+        return schedules.create_schedule(request.name, contents, rename_if_taken=True)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.get("/api/schedule")
+def get_schedule(path: str):
+    try:
+        schedule = schedules.read_schedule(path)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return schedule
+
+
+@app.put("/api/schedule")
+def save_schedule(path: str, request: ScheduleContents):
+    try:
+        schedules.save_schedule(path, request.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"ok": True}
