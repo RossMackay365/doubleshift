@@ -1,13 +1,16 @@
 import {
-  ScheduleData, JobStatus, ScheduleEntry, VerifyResult, RewardConfig, expandLocations,
+  ScheduleData, JobStatus, ScheduleEntry, VerifyResult, ScheduleSettings, expandLocations,
   ScheduleSummary, ScheduleContents, SavedSchedule,
 } from './types';
-import { rewardConfigToPayload } from './rewardConfig';
+import { applySettings, rankedRewards, rewardsPayload } from './settings';
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_API_URL ?? 'http://localhost:8000';
 
-// Auto-generate IDs, expand locations → courts, resolve trainer.groupID name → ID.
-function withIDs(data: ScheduleData) {
+// Prepare data for the solver: apply the settings (see applySettings), auto-generate
+// IDs, expand locations → courts, and resolve group names (Player Group, Training
+// Groups) → IDs.
+function withIDs(rawData: ScheduleData, settings: ScheduleSettings) {
+  const data = applySettings(rawData, settings);
   const groups = data.groups.map((g, i) => ({ ...g, groupID: `g${i}` }));
   const nameToGroupID = new Map(groups.map(g => [g.name, g.groupID]));
 
@@ -15,6 +18,9 @@ function withIDs(data: ScheduleData) {
     ...t,
     trainerID: `t${i}`,
     groupID: nameToGroupID.get(t.groupID) ?? '',
+    assigned_groups: settings.assignTrainers
+      ? (t.trainingGroups ?? []).flatMap(name => nameToGroupID.get(name) ?? [])
+      : [],
   }));
 
   const timeslots = data.timeslots.map((s, i) => ({ ...s, id: i }));
@@ -28,13 +34,16 @@ function withIDs(data: ScheduleData) {
 
   const location_names = (data.locations ?? []).map(l => l.name);
 
-  return { groups, trainers, timeslots, courts, travel_times, location_names };
+  return { groups, trainers, timeslots, courts, travel_times, location_names, assign_trainers: settings.assignTrainers };
 }
 
-export async function startOptimization(data: ScheduleData, rewardConfig?: RewardConfig): Promise<{ job_id: string }> {
+export async function startOptimization(data: ScheduleData, settings: ScheduleSettings): Promise<{ job_id: string }> {
   const payload = {
-    ...withIDs(data),
-    ...(rewardConfig ? { reward_config: rewardConfigToPayload(rewardConfig) } : {}),
+    ...withIDs(data, settings),
+    reward_config: rewardsPayload(settings, data),
+    max_solve_seconds: settings.maxSolveSeconds,
+    reward_mode: settings.rewardMode,
+    reward_order: rankedRewards(settings, data).map(r => r.key),
   };
   const res = await fetch(`${API_BASE}/api/optimize`, {
     method: 'POST',
@@ -59,13 +68,12 @@ export async function cancelOptimization(jobId: string): Promise<void> {
 export async function verifySchedule(
   data: ScheduleData,
   schedule: ScheduleEntry[],
-  rewardConfig?: RewardConfig,
+  settings: ScheduleSettings,
 ): Promise<VerifyResult> {
-  const prepared = withIDs(data);
   const payload = {
-    ...prepared,
+    ...withIDs(data, settings),
     schedule,
-    ...(rewardConfig ? { reward_config: rewardConfigToPayload(rewardConfig) } : {}),
+    reward_config: rewardsPayload(settings, data),
   };
   const res = await fetch(`${API_BASE}/api/verify`, {
     method: 'POST',

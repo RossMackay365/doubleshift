@@ -21,12 +21,10 @@ backend/
 │   ├── transform.py    # Converts frontend payload into solver-ready data structures
 │   ├── verify.py       # Validates user-edited schedules against all constraints
 │   ├── diagnostics.py  # Post-INFEASIBLE analysis: diagnoses likely causes
-│   ├── config.py       # Default reward values and merge logic
 │   ├── schedules.py    # Saved schedules (.doubleshift files) and the recently opened list
 │   └── state.py        # In-memory job state (thread-safe)
 ├── requirements.txt
 ├── Dockerfile
-└── .env                # Optional, not committed — copy from .env.example
 ```
 
 ## Running Locally
@@ -37,9 +35,6 @@ python -m venv venv
 source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-# Optional: copy the example env file to override defaults
-cp .env.example .env
-
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -49,9 +44,11 @@ API docs are available at http://localhost:8000/docs once running.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `MAX_SOLVE_TIME` | No | `120` | Solver time limit in seconds |
 | `DOUBLESHIFT_SCHEDULES_DIR` | No | `Documents\DoubleShift` | Where `.doubleshift` files are saved |
 | `DOUBLESHIFT_DATA_DIR` | No | per-user app data folder | Where the recently opened list is kept |
+| `SOLVER_WORKERS` | No | `0` (all cores) | CP-SAT worker threads |
+
+The solver time limit comes from each schedule's Scheduler Settings (`max_solve_seconds` in the optimize request, 10–3600, default 120).
 
 ## API Reference
 
@@ -74,7 +71,7 @@ Stops a running job, keeping the best schedule found so far.
 Validates a (potentially user-edited) schedule against all hard constraints and returns its soft-constraint score.
 
 ### Saved schedules
-Each schedule is a `.doubleshift` file (JSON: `version`, `data`, `reward_config`, `last_run`) identified by its full path; the file name is the schedule name. `data`, `reward_config` and `last_run` are stored exactly as the frontend sends them. Files are written to a temporary file and then swapped in, so a crash never leaves a half-written schedule.
+Each schedule is a `.doubleshift` file (JSON: `version`, `data`, `settings`, `last_run`) identified by its full path; the file name is the schedule name. `data`, `settings` and `last_run` are stored exactly as the frontend sends them. Files are written to a temporary file and then swapped in, so a crash never leaves a half-written schedule.
 
 | Endpoint | Description |
 |---|---|
@@ -83,7 +80,7 @@ Each schedule is a `.doubleshift` file (JSON: `version`, `data`, `reward_config`
 | `POST /api/schedules` | Create `<name>.doubleshift`: `{ name }`. 409 if the name is taken |
 | `POST /api/schedules/import` | Copy an uploaded file into the folder: `{ name, file }`. Renames to `name (2)` if taken |
 | `GET /api/schedule?path=` | Read a file and add it to the recent list |
-| `PUT /api/schedule?path=` | Write the whole file: `{ data, reward_config, last_run }` |
+| `PUT /api/schedule?path=` | Write the whole file: `{ data, settings, last_run }` |
 
 ## Solver Design
 
@@ -99,11 +96,21 @@ One boolean variable per `(group, trainer, court, timeslot)` combination. Variab
 4. Total coaching assignments ≤ trainer capacity
 5. A trainer cannot coach and play in the same timeslot
 6. A trainer cannot be at venue A at slot S1 and venue B at slot S2 if the gap between S1.finish and S2.start is less than the defined travel time
-7. A player-trainer with a **required** day preference must coach only on the day they play (`same`) or never on that day (`different`). Non-required preferences are scored instead (Day Preference reward).
 
-### Soft Constraints / Rewards (`constraints.py`, `config.py`)
+### Soft Constraints / Rewards (`constraints.py`)
 
-All rewards are configurable by the user via the UI and passed in `reward_config`. See the root README for the full reward table.
+All rewards are configurable per schedule on the Scheduler Settings page and passed in `reward_config` (`{ REWARD_KEY: points }`, 0 when off). Points for every reward in `REWARD_KEYS` are required; the backend has no defaults of its own. See the root README for the full reward table.
+
+`apply_constraints()` returns each reward's indicator variables (`{ reward key: [BoolVar] }`, 1 = achieved once, or for the penalty, incurred once). `solver.py` turns them into the objective:
+
+- **Points** (`reward_mode: "points"`): maximise the points-weighted total, penalties subtracted.
+- **Hierarchical** (`reward_mode: "hierarchical"`): optimise each reward in `reward_order` in turn. After each stage its result is locked in (a constraint), and the next stage starts from that schedule (solution hints). Each stage gets an equal share of the remaining time, so a stage that finishes early passes its spare time on; rewards with nothing to optimise are skipped. Progress stats include `stage`, `stage_count` and `stage_name`.
+
+Both modes report `reward_counts` (how often each reward was achieved) in the final stats, and `POST /api/verify` returns the same counts for an edited schedule (`verify.py` mirrors the reward logic, and its points score is computed from those counts).
+
+### Assigned Trainers
+
+With `assign_trainers: true`, each trainer's `assigned_groups` (group IDs) replace level-based qualifications: a trainer qualifies only for the groups they're assigned. Diagnostics then report groups with no trainer assigned instead of qualification-coverage problems.
 
 ### Live Results
 
@@ -111,7 +118,7 @@ The solver uses a `CpSolverSolutionCallback` that fires each time a new best sol
 
 ### Infeasibility Diagnostics (`diagnostics.py`)
 
-When the solver returns INFEASIBLE, `diagnose_infeasibility()` runs a series of independent checks to identify likely causes: unqualified groups, availability gaps, trainer bottlenecks, required day preferences (a definitive conflict when a required trainer is the only option for a group whose days can't satisfy the rule, otherwise a general hint), per-day over-demand, and gender-stratified capacity shortfalls. All failing checks are reported (not just the first).
+When the solver returns INFEASIBLE, `diagnose_infeasibility()` runs a series of independent checks to identify likely causes: unqualified groups, availability gaps, trainer bottlenecks, per-day over-demand, and gender-stratified capacity shortfalls. All failing checks are reported (not just the first).
 
 ## Data Flow
 

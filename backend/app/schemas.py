@@ -1,5 +1,18 @@
-from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
+from pydantic import AfterValidator, BaseModel, Field
+from typing import Annotated, Optional, Dict, Any, List, Literal
+from .constraints import REWARD_KEYS
+
+
+def _require_every_reward(points: Dict[str, int]) -> Dict[str, int]:
+    missing = [key for key in REWARD_KEYS if key not in points]
+    if missing:
+        raise ValueError(f"reward_config is missing points for: {', '.join(missing)}")
+    return points
+
+
+# Points for every reward, { REWARD_KEY: points } (0 = off), from the schedule's
+# Scheduler Settings. There are no backend defaults: the frontend always sends them all.
+RewardPoints = Annotated[Dict[str, int], AfterValidator(_require_every_reward)]
 
 
 class Group(BaseModel):
@@ -19,12 +32,8 @@ class Trainer(BaseModel):
     gentsRank: int
     capacity: int = 1  # max number of groups this trainer can be assigned to coach
     availability_bitmask: list[int]
-    # Day preference for player-trainers: coach on the same day they play and/or a
-    # different day. Both or neither ticked = no preference. Required makes it a hard
-    # constraint instead of a scored reward.
-    prefSameDay: bool = True
-    prefDifferentDay: bool = False
-    prefRequired: bool = False
+    # Groups this trainer is assigned to coach (groupIDs). Only used when assign_trainers is set.
+    assigned_groups: list[str] = []
 
 
 class Court(BaseModel):
@@ -53,7 +62,15 @@ class OptimizeRequest(BaseModel):
     timeslots:      list[Timeslot]
     travel_times:   list[TravelTime] = []
     location_names: list[str] = []
-    reward_config:  Optional[Dict[str, int]] = None
+    reward_config:  RewardPoints
+    # Trainers coach only their assigned_groups, instead of any group their level qualifies them for.
+    assign_trainers: bool = False
+    # 'points': maximise the points-weighted total. 'hierarchical': optimise the rewards in
+    # reward_order one at a time, never giving up a higher one for a lower one.
+    reward_mode: Literal['points', 'hierarchical'] = 'points'
+    reward_order: list[str] = []
+    # Solver time limit, from the schedule's Scheduler Settings (10 seconds to 1 hour).
+    max_solve_seconds: int = Field(default=120, ge=10, le=3600)
 
 
 class JobStatusResponse(BaseModel):
@@ -78,7 +95,8 @@ class VerifyRequest(BaseModel):
     schedule:       list[ScheduleEntryModel]
     travel_times:   list[TravelTime] = []
     location_names: list[str] = []
-    reward_config:  Optional[Dict[str, int]] = None
+    reward_config:  RewardPoints
+    assign_trainers: bool = False
 
 
 class VerifyResponse(BaseModel):
@@ -88,3 +106,4 @@ class VerifyResponse(BaseModel):
     absolute_gap: Optional[float] = None
     gap_percent:  Optional[float] = None
     violations:   List[str] = []
+    reward_counts: Optional[Dict[str, int]] = None

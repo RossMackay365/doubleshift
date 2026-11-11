@@ -1,10 +1,10 @@
 from collections import defaultdict
 from typing import Optional
 from .transform import transform_data
-from .config import resolve_rewards
+from .constraints import REWARD_KEYS, is_penalty
 
 
-def verify_schedule(raw_data: dict, schedule_entries: list, best_bound: Optional[float] = None, rewards_cfg: Optional[dict] = None) -> dict:
+def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, best_bound: Optional[float] = None) -> dict:
     """
     Validates a user-edited schedule against all hard constraints, computes the
     soft-constraint objective score, and returns an optimality gap if a best_bound
@@ -203,48 +203,23 @@ def verify_schedule(raw_data: dict, schedule_entries: list, best_bound: Optional
                                 f"{timeslots[s2]['day']} {timeslots[s2]['start']}"
                             )
 
-    # --- Hard 7: Required day preference ---
-    # A group is scheduled once, so a player-trainer has a single play day.
-    #   'same':      every coaching session must be on the play day
-    #   'different': no coaching session may be on the play day
-    day_pref          = data.get('day_pref', ['same'] * len(trainers))
-    day_pref_required = data.get('day_pref_required', [False] * len(trainers))
-    playing_group_name: dict = {}  # ti -> name of the group they play in (if scheduled)
-    for gi, _, _, _ in parsed:
-        for t_key in members.get(gi, []):
-            if t_key in data['indices']['t']:
-                playing_group_name[data['indices']['t'][t_key]] = groups[gi]['name']
-
-    for gi, ti, _, si in parsed:
-        if not day_pref_required[ti] or not playing_slots[ti]:
-            continue
-        pref     = day_pref[ti]
-        play_day = timeslots[next(iter(playing_slots[ti]))]['day']
-        day      = timeslots[si]['day']
-        t_name   = trainers[ti]['name']
-        p_name   = playing_group_name.get(ti, '?')
-        if pref == 'same' and day != play_day:
-            violations.append(
-                f"Trainer '{t_name}' must coach on the same day they play "
-                f"(plays in '{p_name}' on {play_day}) but coaches '{groups[gi]['name']}' on {day}"
-            )
-        elif pref == 'different' and day == play_day:
-            violations.append(
-                f"Trainer '{t_name}' must coach on a different day from when they play "
-                f"(plays in '{p_name}' on {play_day}) but coaches '{groups[gi]['name']}' on {day}"
-            )
-
     feasible = len(violations) == 0
-    score    = _compute_score(data, parsed, rewards_cfg or {}) if feasible else None
+    counts = _count_rewards(data, parsed) if feasible else None
+    # Points-mode score: each reward's count times its points, with penalties subtracted.
+    score = (
+        sum((-1 if is_penalty(key) else 1) * rewards_cfg[key] * n for key, n in counts.items())
+        if feasible else None
+    )
 
-    return _result(feasible=feasible, violations=violations, score=score, best_bound=best_bound)
+    return _result(feasible=feasible, violations=violations, score=score, best_bound=best_bound,
+                   reward_counts=counts)
 
 
-def _compute_score(data: dict, parsed: list, rewards_cfg: dict) -> float:
+def _count_rewards(data: dict, parsed: list) -> dict:
     """
-    Computes the soft-constraint objective, mirroring the rewards in constraints.py.
+    Counts how often each reward is achieved (or penalty incurred), mirroring the
+    rewards in constraints.py: {reward key: count}.
     """
-    r   = resolve_rewards(rewards_cfg)
     raw = data['raw']
     timeslots = raw['timeslots']
     trainers  = raw['trainers']
@@ -265,36 +240,19 @@ def _compute_score(data: dict, parsed: list, rewards_cfg: dict) -> float:
                 ti2 = data['indices']['t'][t_key]
                 playing_slots[ti2].add(si)
 
-    # Day Preference + B2B rewards — player-trainers only (mirrors constraints.py).
-    day_pref          = data.get('day_pref', ['same'] * len(trainers))
-    day_pref_required = data.get('day_pref_required', [False] * len(trainers))
-
-    score = 0.0
+    # Back-to-Back reward — player-trainers only (mirrors constraints.py).
+    counts = {key: 0 for key in REWARD_KEYS}
     for ti in range(len(trainers)):
         c_slots = coaching_slots[ti]
         p_slots = playing_slots[ti]
         if not p_slots:
             continue
-        pref = day_pref[ti]
-
-        # B2B only for trainers who accept coaching on their play day.
-        if pref in ('same', 'any'):
-            for day, day_slots in slots_by_day.items():
-                for i in range(len(day_slots) - 1):
-                    if day_slots[i] in c_slots and day_slots[i + 1] in p_slots:
-                        score += r['REWARD_B2B']
-                    if day_slots[i] in p_slots and day_slots[i + 1] in c_slots:
-                        score += r['REWARD_B2B']
-
-        # Day Preference: one reward per trainer when they coach at least once and
-        # every coaching day satisfies the preference. Required = hard, no reward.
-        if pref == 'any' or day_pref_required[ti] or not c_slots:
-            continue
-        play_day      = timeslots[next(iter(p_slots))]['day']
-        coaching_days = {timeslots[s]['day'] for s in c_slots}
-        met = (coaching_days == {play_day}) if pref == 'same' else (play_day not in coaching_days)
-        if met:
-            score += r['REWARD_DAY_PREF']
+        for day_slots in slots_by_day.values():
+            for s, next_s in zip(day_slots, day_slots[1:]):
+                if s in c_slots and next_s in p_slots:
+                    counts['REWARD_B2B'] += 1
+                if s in p_slots and next_s in c_slots:
+                    counts['REWARD_B2B'] += 1
 
     # No Net Height Change reward: per-court consecutive same-gender slots
     groups = raw['groups']
@@ -315,7 +273,7 @@ def _compute_score(data: dict, parsed: list, rewards_cfg: dict) -> float:
                 for gender in ('female', 'male'):
                     if (any(str(groups[gi].get('gender', '')).strip().lower() == gender for gi in gi_s1) and
                             any(str(groups[gi].get('gender', '')).strip().lower() == gender for gi in gi_s2)):
-                        score += r['REWARD_NET_HEIGHT']
+                        counts['REWARD_NET_HEIGHT'] += 1
 
     # No Travel reward: +100 per trainer per day where all activities are at the same venue.
     # Mirrors constraints.py: fires only when trainer has structural access to 2+ venues that
@@ -415,7 +373,7 @@ def _compute_score(data: dict, parsed: list, rewards_cfg: dict) -> float:
                     continue
                 active_venues = {slot_venue[si] for si in active_slots}
                 if len(active_venues) == 1:
-                    score += r['REWARD_NO_TRAVEL']
+                    counts['REWARD_NO_TRAVEL'] += 1
 
     # Adjacent group rewards: B2B + same-day + blocked penalty.
     multi_location = len({v for v in court_venue.values() if v}) >= 2
@@ -448,7 +406,7 @@ def _compute_score(data: dict, parsed: list, rewards_cfg: dict) -> float:
             if si_i == si_j:
                 continue
             # Same day + same venue (different slots)
-            score += r['REWARD_ADJ_GROUP_SAME_DAY']
+            counts['REWARD_ADJ_GROUP_SAME_DAY'] += 1
             day_slots = slots_by_day[day_i]
             try:
                 idx_i = day_slots.index(si_i)
@@ -456,7 +414,7 @@ def _compute_score(data: dict, parsed: list, rewards_cfg: dict) -> float:
             except ValueError:
                 continue
             if abs(idx_i - idx_j) == 1:
-                score += r['REWARD_ADJ_GROUP_B2B']
+                counts['REWARD_ADJ_GROUP_B2B'] += 1
             # Penalty: member of lower-level group coaching when higher-level group plays,
             # independent of B2B — fires any time the slots coincide.
             if level_i < level_j:
@@ -465,7 +423,7 @@ def _compute_score(data: dict, parsed: list, rewards_cfg: dict) -> float:
                     if t_id in data['indices']['t']:
                         ti_m = data['indices']['t'][t_id]
                         if si_i in coaching_slots[ti_m]:
-                            score -= r['PENALTY_ADJ_BLOCKED']
+                            counts['PENALTY_ADJ_BLOCKED'] += 1
                             break
             else:
                 # gj is higher tier; check if gi's trainer is coaching when gj plays
@@ -473,10 +431,10 @@ def _compute_score(data: dict, parsed: list, rewards_cfg: dict) -> float:
                     if t_id in data['indices']['t']:
                         ti_m = data['indices']['t'][t_id]
                         if si_j in coaching_slots[ti_m]:
-                            score -= r['PENALTY_ADJ_BLOCKED']
+                            counts['PENALTY_ADJ_BLOCKED'] += 1
                             break
 
-    return score
+    return counts
 
 
 def _parse_hhmm(s: str) -> int:
@@ -493,6 +451,7 @@ def _result(
     violations: list,
     score: Optional[float],
     best_bound: Optional[float],
+    reward_counts: Optional[dict] = None,
 ) -> dict:
     absolute_gap: Optional[float] = None
     gap_percent: Optional[float]  = None
@@ -508,4 +467,5 @@ def _result(
         'absolute_gap': absolute_gap,
         'gap_percent':  gap_percent,
         'violations':   violations,
+        'reward_counts': reward_counts,
     }

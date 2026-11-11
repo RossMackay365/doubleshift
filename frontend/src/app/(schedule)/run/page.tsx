@@ -2,15 +2,15 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   Play, Square, AlertCircle, CheckCircle2, Loader2, Clock,
-  Pencil, X, ShieldCheck, RotateCcw, Save, BarChart2, Settings,
+  Pencil, X, ShieldCheck, RotateCcw, Save, BarChart2,
 } from 'lucide-react';
 import { verifySchedule } from '@/lib/api';
-import { ScheduleEntry, VerifyResult, RewardConfig, expandLocations, Court } from '@/lib/types';
+import { ScheduleData, ScheduleEntry, ScheduleSettings, VerifyResult, expandLocations, Court } from '@/lib/types';
 import ScheduleGrid from '@/components/ScheduleGrid';
 import ScoreBreakdownPanel from '@/components/ScoreBreakdownPanel';
-import ConfigPanel from '@/components/ConfigPanel';
 import { useSchedule } from '@/components/ScheduleProvider';
 import { computeScoreBreakdown } from '@/lib/scoreBreakdown';
+import { REWARDS, applySettings, rankedRewards } from '@/lib/settings';
 
 // Overlay the optimality gap onto a verify result using the solver's best_bound,
 // which the client already holds. Keeps Verify independent of any server-side
@@ -26,7 +26,7 @@ export default function RunPage() {
   // Data, reward settings, the last run and any run in progress belong to the open
   // schedule (ScheduleProvider), so a run keeps going while switching tabs.
   const {
-    data, rewardConfig, setRewardConfig, lastRun, setLastRun,
+    data, settings, lastRun, setLastRun,
     activeRun, running, cancelling, startedAt, runError, clearRunError, startRun, cancelRun,
   } = useSchedule();
   const jobStatus = running ? activeRun : lastRun;
@@ -40,8 +40,6 @@ export default function RunPage() {
   const [verifying, setVerifying] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(false);
 
-  // Config panel state
-  const [configOpen, setConfigOpen] = useState(false);
 
   // Tick a clock while a run is in progress so the live elapsed counter advances.
   useEffect(() => {
@@ -49,10 +47,6 @@ export default function RunPage() {
     const id = setInterval(() => setNowMs(Date.now()), 500);
     return () => clearInterval(id);
   }, [running]);
-
-  function handleRewardConfigChange(config: RewardConfig) {
-    setRewardConfig(config);
-  }
 
   function handleRun() {
     setError(null);
@@ -92,6 +86,7 @@ export default function RunPage() {
           absolute_gap: vr.absolute_gap,
           gap_percent: vr.gap_percent,
           optimal: vr.gap_percent === 0,
+          reward_counts: vr.reward_counts,
         }
       : jobStatus.stats;
     setLastRun({ ...jobStatus, result: editableSchedule, stats: newStats });
@@ -99,7 +94,10 @@ export default function RunPage() {
     setVerifyResult(null);
   }
 
-  const activeRewardConfig = jobStatus?.rewardConfig ?? rewardConfig;
+  // Score and verify a run with the settings it was run with.
+  const runSettings = jobStatus?.settings ?? settings;
+  // Hierarchical runs have no single score or gap: results are shown per reward instead.
+  const hierarchical = runSettings.rewardMode === 'hierarchical';
 
   async function handleVerify() {
     if (!data) return;
@@ -107,8 +105,8 @@ export default function RunPage() {
     setVerifyResult(null);
     setError(null);
     try {
-      const knownBound = jobStatus?.stats?.best_bound ?? jobStatus?.stats?.final_score ?? null;
-      const result = withGap(await verifySchedule(data, editableSchedule, activeRewardConfig), knownBound);
+      const knownBound = hierarchical ? null : jobStatus?.stats?.best_bound ?? jobStatus?.stats?.final_score ?? null;
+      const result = withGap(await verifySchedule(data, editableSchedule, runSettings), knownBound);
       setVerifyResult(result);
     } catch (e) {
       setError(String(e));
@@ -150,16 +148,24 @@ export default function RunPage() {
       document.removeEventListener('click', onLinkClick, true);
     };
   }, [isModified]);
-  const breakdownSchedule = editMode ? editableSchedule : (jobStatus?.result ?? []);
-  const breakdown = useMemo(
-    () => (!showBreakdown || !data || breakdownSchedule.length === 0)
-      ? null
-      : computeScoreBreakdown(
-          breakdownSchedule, data.timeslots, data.trainers, data.groups,
-          data.locations, data.travelTimes, activeRewardConfig,
-        ),
-    [showBreakdown, data, breakdownSchedule, activeRewardConfig],
+
+  const breakdownSchedule = useMemo(
+    () => (editMode ? editableSchedule : (jobStatus?.result ?? [])),
+    [editMode, editableSchedule, jobStatus],
   );
+  // Score the data as the solver saw it (e.g. one gender when teams aren't gendered).
+  const solverData = useMemo(() => data && applySettings(data, runSettings), [data, runSettings]);
+  const breakdown = useMemo(
+    () => (!showBreakdown || !solverData || breakdownSchedule.length === 0)
+      ? null
+      : computeScoreBreakdown(breakdownSchedule, solverData, runSettings),
+    [showBreakdown, solverData, breakdownSchedule, runSettings],
+  );
+
+  // With trainers assigned to groups, every group needs a trainer before running.
+  const unassignedGroups = settings.assignTrainers && data
+    ? data.groups.filter(g => !data.trainers.some(t => t.trainingGroups?.includes(g.name))).map(g => g.name)
+    : [];
   const stats     = jobStatus?.stats;
   const result    = jobStatus?.result ?? [];
   const hasResult = result.length > 0;
@@ -171,23 +177,14 @@ export default function RunPage() {
   const nearTimeout = running && timeLimit != null && liveElapsed != null && liveElapsed >= timeLimit;
   const inProgress = running && status !== 'completed';
   const canEdit   = hasResult && !running;
-  const configLocked = editMode;
+  const stageName = REWARDS.find(r => r.key === stats?.stage_name)?.label;
 
   return (
     <div>
       {/* Header row */}
       <div className="mb-8 flex flex-wrap items-start gap-4">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold text-gray-900">Run Scheduler</h1>
-            <button
-              onClick={() => setConfigOpen(true)}
-              className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
-            >
-              <Settings size={13} />
-              Reward Settings
-            </button>
-          </div>
+          <h1 className="text-2xl font-semibold text-gray-900">Run Scheduler</h1>
           {data && (
             <p className="mt-1 text-base text-gray-500">
               {data.groups.length} groups · {data.trainers.length} trainers · {courts.length} courts · {data.timeslots.length} timeslots
@@ -196,13 +193,18 @@ export default function RunPage() {
           {!data && (
             <p className="mt-1 text-base text-amber-600">No data yet. Add it on the Data tab.</p>
           )}
+          {unassignedGroups.length > 0 && (
+            <p className="mt-1 text-base text-amber-600">
+              No trainer assigned to: {unassignedGroups.join(', ')}. Choose them as Training Groups on the Data tab.
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2.5 ml-auto">
           {!editMode && (
             <>
               <button
                 onClick={handleRun}
-                disabled={!data || running}
+                disabled={!data || running || unassignedGroups.length > 0}
                 className="flex items-center gap-2 rounded-md bg-blue-600 px-5 py-2.5 text-base font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
               >
                 {running ? <Loader2 size={17} className="animate-spin" /> : <Play size={17} />}
@@ -297,14 +299,17 @@ export default function RunPage() {
             <div className="flex flex-wrap items-center gap-x-7 gap-y-2.5 text-base">
               <StatusBadge status={status!} />
               {stats?.solutions_found != null && <Stat label="Solutions found" value={stats.solutions_found} />}
-              {stats?.current_score != null && <Stat label="Current score" value={(stats.current_score / 10000).toFixed(2)} />}
+              {!hierarchical && stats?.current_score != null && <Stat label="Current score" value={(stats.current_score / 10000).toFixed(2)} />}
+              {hierarchical && running && stageName && (
+                <Stat label="Optimising" value={`${stageName} (${stats!.stage} of ${stats!.stage_count})`} />
+              )}
               {liveElapsed != null && (
                 <Stat
                   label="Elapsed"
                   value={`${liveElapsed.toFixed(1)}s${timeLimit != null ? ` / ${timeLimit.toFixed(0)}s limit` : ''}`}
                 />
               )}
-              {stats?.gap_percent != null && <Stat label="Gap" value={`${stats.gap_percent.toFixed(1)}%`} />}
+              {!hierarchical && stats?.gap_percent != null && <Stat label="Gap" value={`${stats.gap_percent.toFixed(1)}%`} />}
               {nearTimeout && (
                 <span className="flex items-center gap-1.5 text-amber-600">
                   <Clock size={16} /> Reaching time limit — finishing up…
@@ -338,6 +343,9 @@ export default function RunPage() {
               </button>
             )}
           </div>
+          {hierarchical && !running && stats?.reward_counts && (
+            <RewardResults counts={stats.reward_counts} settings={runSettings} data={data} />
+          )}
           {stats?.issues && stats.issues.length > 0 && (
             <div className="mt-4 rounded-md border border-red-100 bg-red-50 p-4">
               <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-red-700">Likely causes</div>
@@ -359,12 +367,12 @@ export default function RunPage() {
                   <span className="flex items-center gap-1.5 font-semibold text-green-700">
                     <CheckCircle2 size={17} /> Valid schedule
                   </span>
-                  {verifyResult.score != null && <Stat label="Score" value={(verifyResult.score / 10000).toFixed(2)} />}
-                  {(stats?.final_score ?? stats?.current_score) != null && (
+                  {!hierarchical && verifyResult.score != null && <Stat label="Score" value={(verifyResult.score / 10000).toFixed(2)} />}
+                  {!hierarchical && (stats?.final_score ?? stats?.current_score) != null && (
                     <Stat label="Solver best" value={((stats!.final_score ?? stats!.current_score)! / 10000).toFixed(2)} />
                   )}
-                  {verifyResult.best_bound != null && <Stat label="Overall optimum" value={(verifyResult.best_bound / 10000).toFixed(2)} />}
-                  {verifyResult.gap_percent != null && (
+                  {!hierarchical && verifyResult.best_bound != null && <Stat label="Overall optimum" value={(verifyResult.best_bound / 10000).toFixed(2)} />}
+                  {!hierarchical && verifyResult.gap_percent != null && (
                     <Stat label="Gap" value={`${verifyResult.gap_percent.toFixed(1)}%`} />
                   )}
                   {verifyResult.gap_percent === 0 && (
@@ -389,6 +397,9 @@ export default function RunPage() {
               </button>
             )}
           </div>
+          {hierarchical && verifyResult.feasible && verifyResult.reward_counts && (
+            <RewardResults counts={verifyResult.reward_counts} settings={runSettings} data={data} />
+          )}
           {!verifyResult.feasible && verifyResult.violations.length > 0 && (
             <div className="mt-4">
               <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-red-700">Violations</div>
@@ -401,7 +412,7 @@ export default function RunPage() {
       )}
 
       {/* Score breakdown panel */}
-      {showBreakdown && data && (
+      {showBreakdown && solverData && (
         <div className="mb-8 rounded-lg border border-gray-200 bg-white p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-base font-semibold text-gray-800">Score Breakdown</h2>
@@ -424,7 +435,8 @@ export default function RunPage() {
             adjGroupSameDayCount={breakdown?.adjGroupSameDayCount ?? 0}
             adjGroupB2bPenaltyCount={breakdown?.adjGroupB2bPenaltyCount ?? 0}
             adjGroupB2bPenaltyTrainers={breakdown?.adjGroupB2bPenaltyTrainers ?? []}
-            rewardConfig={activeRewardConfig}
+            settings={runSettings}
+            data={solverData}
           />
         </div>
       )}
@@ -435,9 +447,9 @@ export default function RunPage() {
           timeslots={data.timeslots}
           courts={courts}
           result={result}
-          groups={data.groups}
+          groups={runSettings.genderedTeams ? data.groups : undefined /* no gender colours */}
           inProgress={inProgress}
-          gapPercent={stats?.gap_percent}
+          gapPercent={hierarchical ? null : stats?.gap_percent}
           editMode={editMode}
           editableSchedule={editableSchedule}
           trainers={data.trainers}
@@ -448,14 +460,33 @@ export default function RunPage() {
       {!hasResult && jobStatus && !running && (
         <p className="text-base text-gray-500">No schedule produced.</p>
       )}
+    </div>
+  );
+}
 
-      <ConfigPanel
-        open={configOpen}
-        onClose={() => setConfigOpen(false)}
-        config={rewardConfig}
-        onChange={handleRewardConfigChange}
-        locked={configLocked}
-      />
+// Hierarchical mode: how often each reward was achieved, in priority order.
+function RewardResults({ counts, settings, data }: {
+  counts: Record<string, number>;
+  settings: ScheduleSettings;
+  data: ScheduleData | null;
+}) {
+  return (
+    <div className="mt-4">
+      <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">Results by priority</div>
+      <ol className="space-y-1 text-base">
+        {rankedRewards(settings, data).map((reward, i) => {
+          const def = REWARDS.find(r => r.key === reward.key)!;
+          return (
+            <li key={reward.key} className="flex gap-3">
+              <span className="w-6 text-right font-semibold text-gray-400">{i + 1}.</span>
+              <span className="text-gray-700">{def.label}</span>
+              <span className="font-medium text-gray-900">
+                {counts[reward.key] ?? 0} {def.isPenalty ? 'incurred' : 'achieved'}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }

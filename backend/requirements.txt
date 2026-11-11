@@ -7,8 +7,5 @@ python-multipart
 # The Solver
 ortools
 
-# Utilities
-python-dotenv
-
-# Saved schedules (SQLite)
+# Finding the Documents and app data folders
 platformdirs

@@ -2,14 +2,14 @@
 import { createContext, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { getSchedule, saveSchedule, startOptimization, getJobStatus, cancelOptimization } from '@/lib/api';
-import { DEFAULT_REWARD_CONFIG, mergeWithDefaults } from '@/lib/rewardConfig';
-import { JobStatus, RewardConfig, ScheduleContents, ScheduleData } from '@/lib/types';
+import { DEFAULT_SETTINGS, withDefaults, withUnavailableOff } from '@/lib/settings';
+import { JobStatus, ScheduleContents, ScheduleData, ScheduleSettings } from '@/lib/types';
 import ScheduleNotFound from '@/components/ScheduleNotFound';
 
 const POLL_MS = 1000;
 const DONE = new Set(['completed', 'failed', 'cancelled']);
 
-// The open schedule (?file=<path>), shared by its Data and Run pages. Pages edit this
+// The open schedule (?file=<path>), shared by its Data, Run and Settings pages. Pages edit this
 // working copy; save() writes all of it to the file, so one Save covers everything and
 // switching tabs never loses changes. A solver run also lives here, so it keeps going
 // while switching tabs.
@@ -18,8 +18,8 @@ interface OpenSchedule {
   name: string;
   data: ScheduleData | null;
   setData: (data: ScheduleData) => void;
-  rewardConfig: RewardConfig;
-  setRewardConfig: (config: RewardConfig) => void;
+  settings: ScheduleSettings;
+  setSettings: (settings: ScheduleSettings) => void;
   lastRun: JobStatus | null;
   setLastRun: (run: JobStatus | null) => void;
   isModified: boolean;
@@ -49,14 +49,14 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
   const [loadError, setLoadError] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [data, setData] = useState<ScheduleData | null>(null);
-  const [rewardConfig, setRewardConfig] = useState<RewardConfig>(DEFAULT_REWARD_CONFIG);
+  const [settings, setSettings] = useState<ScheduleSettings>(DEFAULT_SETTINGS);
   const [lastRun, setLastRun] = useState<JobStatus | null>(null);
   // The contents as last loaded or saved, to tell whether there are unsaved changes.
   const [savedJson, setSavedJson] = useState('');
 
   const contents: ScheduleContents = useMemo(
-    () => ({ data, reward_config: rewardConfig, last_run: lastRun }),
-    [data, rewardConfig, lastRun],
+    () => ({ data, settings, last_run: lastRun }),
+    [data, settings, lastRun],
   );
   const contentsJson = useMemo(() => JSON.stringify(contents), [contents]);
   const isModified = status === 'ready' && contentsJson !== savedJson;
@@ -72,13 +72,13 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
           setStatus('notFound');
           return;
         }
-        const config = schedule.reward_config ? mergeWithDefaults(schedule.reward_config) : DEFAULT_REWARD_CONFIG;
+        const loadedSettings = withUnavailableOff(withDefaults(schedule.settings), schedule.data);
         setName(schedule.name);
         setData(schedule.data);
-        setRewardConfig(config);
+        setSettings(loadedSettings);
         setLastRun(schedule.last_run);
         // Same shape and key order as `contents`, so an untouched schedule isn't "modified".
-        setSavedJson(JSON.stringify({ data: schedule.data, reward_config: config, last_run: schedule.last_run }));
+        setSavedJson(JSON.stringify({ data: schedule.data, settings: loadedSettings, last_run: schedule.last_run }));
         setStatus('ready');
       })
       .catch(e => setLoadError(e instanceof Error ? e.message : String(e)));
@@ -92,6 +92,17 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
       alert(`Save failed: ${e instanceof Error ? e.message : e}`);
     }
   }, [path, contents, contentsJson]);
+
+  // Changing the data or settings can make a reward unavailable (e.g. removing the second
+  // location); it's then switched off, see withUnavailableOff.
+  const updateData = useCallback((next: ScheduleData) => {
+    setData(next);
+    setSettings(current => withUnavailableOff(current, next));
+  }, []);
+  const updateSettings = useCallback(
+    (next: ScheduleSettings) => setSettings(withUnavailableOff(next, data)),
+    [data],
+  );
 
   // --- Running the solver ---
   const [activeRun, setActiveRun] = useState<JobStatus | null>(null);
@@ -118,18 +129,18 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
     setCancelling(false);
   }
 
-  async function poll(jobId: string, config: RewardConfig) {
+  async function poll(jobId: string, runSettings: ScheduleSettings) {
     try {
       const status = await getJobStatus(jobId);
       if (jobIdRef.current !== jobId) return;
-      // Remember which reward settings the run used, for scoring and verifying it later.
-      const withConfig = { ...status, rewardConfig: config };
+      // Remember which settings the run used, for scoring and verifying it later.
+      const withSettings = { ...status, settings: runSettings };
       if (DONE.has(status.status)) {
-        setLastRun(withConfig);
+        setLastRun(withSettings);
         setActiveRun(null);
         finishRun();
       } else {
-        setActiveRun(withConfig);
+        setActiveRun(withSettings);
       }
     } catch (e) {
       if (jobIdRef.current !== jobId) return;
@@ -146,13 +157,13 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
     setRunning(true);
     setCancelling(false);
     setStartedAt(Date.now());
-    const config = rewardConfig;
+    const runSettings = settings;
     try {
-      const { job_id } = await startOptimization(data, config);
+      const { job_id } = await startOptimization(data, runSettings);
       jobIdRef.current = job_id;
-      setActiveRun({ job_id, status: 'pending', stats: {} as JobStatus['stats'], result: null, rewardConfig: config });
-      intervalRef.current = setInterval(() => poll(job_id, config), POLL_MS);
-      poll(job_id, config);
+      setActiveRun({ job_id, status: 'pending', stats: {} as JobStatus['stats'], result: null, settings: runSettings });
+      intervalRef.current = setInterval(() => poll(job_id, runSettings), POLL_MS);
+      poll(job_id, runSettings);
     } catch (e) {
       setRunError(String(e));
       finishRun();
@@ -207,7 +218,7 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
     }
     function onLinkClick(e: MouseEvent) {
       const link = (e.target as HTMLElement).closest('a');
-      if (!link || link.pathname === '/data' || link.pathname === '/run') return;
+      if (!link || ['/data', '/run', '/settings'].includes(link.pathname)) return;
       if (!confirm(warning)) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -227,7 +238,7 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
 
   return (
     <ScheduleContext.Provider value={{
-      path, name, data, setData, rewardConfig, setRewardConfig, lastRun, setLastRun, isModified, save,
+      path, name, data, setData: updateData, settings, setSettings: updateSettings, lastRun, setLastRun, isModified, save,
       activeRun, running, cancelling, startedAt, runError, clearRunError: () => setRunError(null), startRun, cancelRun,
     }}>
       {children}

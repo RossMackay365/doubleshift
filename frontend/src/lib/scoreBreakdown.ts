@@ -1,5 +1,5 @@
-import { ScheduleEntry, Timeslot, Trainer, Group, Location, TravelTime, RewardConfig, DayPref, getDayPref } from './types';
-import { REWARD_DAY_PREF, REWARD_B2B, REWARD_NO_TRAVEL, REWARD_ADJ_GROUP_B2B, REWARD_ADJ_GROUP_SAME_DAY, PENALTY_ADJ_BLOCKED, getEffectiveValue, DEFAULT_REWARD_CONFIG } from './rewardConfig';
+import { ScheduleData, ScheduleEntry, ScheduleSettings } from './types';
+import { rewardPoints } from './settings';
 
 export interface TrainerBreakdownItem {
   name: string;
@@ -8,12 +8,6 @@ export interface TrainerBreakdownItem {
   playingGroup: string;
   playingSlots: string[];
   b2bCount: number;
-  // Day preference: 'any' means no preference (no reward, no constraint).
-  dayPref: DayPref;
-  dayPrefRequired: boolean;
-  dayPrefMet: boolean;
-  playingDay: string;
-  coachingDays: string[];
   total: number;
 }
 
@@ -33,20 +27,11 @@ export interface ScoreBreakdown {
 
 export function computeScoreBreakdown(
   schedule: ScheduleEntry[],
-  timeslots: Timeslot[],
-  trainers: Trainer[],
-  groups: Group[],
-  locations?: Location[],
-  travelTimes?: TravelTime[],
-  rewardConfig?: RewardConfig,
+  data: ScheduleData,
+  settings: ScheduleSettings,
 ): ScoreBreakdown {
-  const cfg = rewardConfig ?? DEFAULT_REWARD_CONFIG;
-  const rDayPref    = getEffectiveValue(cfg, 'REWARD_DAY_PREF',           REWARD_DAY_PREF);
-  const rB2b        = getEffectiveValue(cfg, 'REWARD_B2B',                REWARD_B2B);
-  const rNoTravel   = getEffectiveValue(cfg, 'REWARD_NO_TRAVEL',          REWARD_NO_TRAVEL);
-  const rAdjB2b     = getEffectiveValue(cfg, 'REWARD_ADJ_GROUP_B2B',      REWARD_ADJ_GROUP_B2B);
-  const rAdjSameDay = getEffectiveValue(cfg, 'REWARD_ADJ_GROUP_SAME_DAY', REWARD_ADJ_GROUP_SAME_DAY);
-  const rPenBlocked = getEffectiveValue(cfg, 'PENALTY_ADJ_BLOCKED',       PENALTY_ADJ_BLOCKED);
+  const { timeslots, trainers, groups, locations } = data;
+  const rB2b = rewardPoints(settings, data, 'REWARD_B2B');
   const slotsByDay = new Map<string, number[]>();
   timeslots.forEach((ts, i) => {
     if (!slotsByDay.has(ts.day)) slotsByDay.set(ts.day, []);
@@ -74,32 +59,14 @@ export function computeScoreBreakdown(
       const cSet = new Set(cIndices);
       const pSet = new Set(pIndices);
 
-      const dayPref = getDayPref(trainer);
-      const dayPrefRequired = (trainer.prefRequired ?? false) && dayPref !== 'any';
-      const isPlayer = pIndices.length > 0;
-
-      // B2B only for trainers who accept coaching on their play day (mirrors backend).
+      // Back-to-Back: coaching right before or after their own session (mirrors backend).
       let b2bCount = 0;
-      if (isPlayer && dayPref !== 'different') {
-        for (const [, daySlots] of slotsByDay) {
-          for (let i = 0; i < daySlots.length - 1; i++) {
-            if (cSet.has(daySlots[i]) && pSet.has(daySlots[i + 1])) b2bCount++;
-            if (pSet.has(daySlots[i]) && cSet.has(daySlots[i + 1])) b2bCount++;
-          }
+      for (const [, daySlots] of slotsByDay) {
+        for (let i = 0; i < daySlots.length - 1; i++) {
+          if (cSet.has(daySlots[i]) && pSet.has(daySlots[i + 1])) b2bCount++;
+          if (pSet.has(daySlots[i]) && cSet.has(daySlots[i + 1])) b2bCount++;
         }
       }
-
-      // Day preference: met when every coaching day satisfies the rule against the
-      // single play day. Only non-required preferences earn the reward.
-      const playingDay = isPlayer ? (timeslots[pIndices[0]]?.day ?? '') : '';
-      const coachingDays = [...new Set(cIndices.map(i => timeslots[i]?.day ?? ''))];
-      let dayPrefMet = false;
-      if (isPlayer && dayPref !== 'any') {
-        dayPrefMet = dayPref === 'same'
-          ? coachingDays.every(d => d === playingDay)
-          : !coachingDays.includes(playingDay);
-      }
-      const dayPrefScore = isPlayer && dayPref !== 'any' && !dayPrefRequired && dayPrefMet ? rDayPref : 0;
 
       return {
         name: trainer.name,
@@ -108,12 +75,7 @@ export function computeScoreBreakdown(
         playingGroup: trainer.groupID ?? '',
         playingSlots: pIndices.map(label),
         b2bCount,
-        dayPref,
-        dayPrefRequired,
-        dayPrefMet,
-        playingDay,
-        coachingDays,
-        total: b2bCount * rB2b + dayPrefScore,
+        total: b2bCount * rB2b,
       };
     })
     .filter((x): x is TrainerBreakdownItem => x !== null);

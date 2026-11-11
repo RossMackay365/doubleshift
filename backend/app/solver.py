@@ -1,11 +1,12 @@
 from ortools.sat.python import cp_model
-from .constraints import apply_constraints
+from .constraints import apply_constraints, is_penalty
 from .transform import transform_data
 from .diagnostics import diagnose_infeasibility
 from .state import update_job, get_job, register_process, unregister_process
 import multiprocessing as mp
 import queue as queue_mod
 import os
+import time
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,11 +23,12 @@ class SchedulerCallback(cp_model.CpSolverSolutionCallback):
     parent writes it into job state. This keeps the live-schedule behaviour
     while letting the parent kill the child on demand.
     """
-    def __init__(self, x: dict, data: dict, progress_queue):
+    def __init__(self, x: dict, data: dict, progress_queue, stage: dict | None = None):
         super().__init__()
         self._x = x
         self._data = data
         self._queue = progress_queue
+        self._stage = stage or {}  # hierarchical mode: which reward is being optimised
         self._solution_count = 0
 
     def on_solution_callback(self):
@@ -50,6 +52,7 @@ class SchedulerCallback(cp_model.CpSolverSolutionCallback):
             "solutions_found": self._solution_count,
             "current_score":   objective,
             "elapsed_seconds": round(self.WallTime(), 2),
+            **self._stage,
         }
         try:
             best_bound   = self.BestObjectiveBound()
@@ -69,8 +72,9 @@ class SchedulerCallback(cp_model.CpSolverSolutionCallback):
 
 def build_and_solve(data: dict, progress_queue):
     """
-    Initializes the CP-SAT model, creates decision variables,
-    applies constraints, and returns the solver and status.
+    Initializes the CP-SAT model, creates decision variables, applies constraints and
+    solves, in points or hierarchical mode. Returns (status, stats), where stats are the
+    final job stats when a schedule was found.
     """
     model = cp_model.CpModel()
 
@@ -118,21 +122,96 @@ def build_and_solve(data: dict, progress_queue):
             "Check availability and qualification data.",
         )
 
-    apply_constraints(model, x, data)
+    rewards = apply_constraints(model, x, data)
 
+    # Hierarchical mode with no reward to optimise has nothing to rank, so it falls
+    # through to an ordinary solve (every reward's points are 0 then).
+    stages = [key for key in data["reward_order"] if rewards.get(key)]
+    if data["reward_mode"] == "hierarchical" and stages:
+        return _solve_hierarchical(model, x, data, rewards, stages, progress_queue)
+
+    # Points: maximise the points-weighted total, with penalties subtracted.
+    points = data["rewards_cfg"]
+    model.Maximize(sum(points[key] * _objective(key, vars_) for key, vars_ in rewards.items()))
+
+    solver = _new_solver(data["max_solve_seconds"])
+    status = solver.Solve(model, SchedulerCallback(x, data, progress_queue))
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        return status, {}
+    return status, {
+        "optimal":         status == cp_model.OPTIMAL,
+        "elapsed_seconds": round(solver.WallTime(), 2),
+        "stopped_reason":  "optimal" if status == cp_model.OPTIMAL else "time_limit",
+        "reward_counts":   _reward_counts(solver, rewards),
+        **_compute_gap(solver),
+    }
+
+
+def _solve_hierarchical(model, x, data, rewards, stages, progress_queue):
+    """
+    Optimises the rewards one at a time in priority order. After each stage its result
+    is locked in, so later stages can never make an earlier reward worse, and the next
+    stage starts from the schedule just found.
+
+    The time limit is shared: each stage gets an equal share of the time left, so a stage
+    that finishes early passes its spare time on. If a later stage runs out of time
+    before finding a schedule, the previous stage's schedule stands.
+    """
+    started  = time.monotonic()
+    deadline = started + data["max_solve_seconds"]
+    solver = status = None
+    all_optimal = True
+
+    for i, key in enumerate(stages):
+        objective = _objective(key, rewards[key])
+        model.ClearObjective()
+        model.Maximize(objective)
+
+        stage = {"stage": i + 1, "stage_count": len(stages), "stage_name": key}
+        stage_solver = _new_solver(max(0.0, (deadline - time.monotonic()) / (len(stages) - i)))
+        stage_status = stage_solver.Solve(model, SchedulerCallback(x, data, progress_queue, stage))
+
+        if stage_status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            if solver is None:  # first stage: no schedule at all
+                return stage_status, {}
+            all_optimal = False
+            break
+
+        solver, status = stage_solver, stage_status
+        all_optimal = all_optimal and stage_status == cp_model.OPTIMAL
+        model.Add(objective >= round(stage_solver.ObjectiveValue()))
+        model.ClearHints()
+        for var in x.values():
+            model.AddHint(var, stage_solver.Value(var))
+
+    return status, {
+        "optimal":         all_optimal,
+        "elapsed_seconds": round(time.monotonic() - started, 2),
+        "stopped_reason":  "optimal" if all_optimal else "time_limit",
+        "reward_counts":   _reward_counts(solver, rewards),
+    }
+
+
+def _objective(key: str, reward_vars: list):
+    """A reward's count to maximise; for a penalty, its count negated (so it's minimised)."""
+    return (-1 if is_penalty(key) else 1) * sum(reward_vars)
+
+
+def _reward_counts(solver, rewards: dict) -> dict:
+    """How often each reward is achieved (or penalty incurred) in the solver's schedule."""
+    return {key: sum(solver.Value(v) for v in vars_) for key, vars_ in rewards.items()}
+
+
+def _new_solver(max_seconds: float):
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = float(os.getenv("MAX_SOLVE_TIME", "120"))
+    solver.parameters.max_time_in_seconds = float(max_seconds)
     # Use all available CPU cores for the fastest solve. 0 = let CP-SAT decide
     # (one worker per core). Peak memory is bounded instead by the container's
     # mem_limit combined with running the solve in a killable child process: if
     # a run exceeds the budget the OS kills only the child, not the API. Set
     # SOLVER_WORKERS to a small number as an escape hatch if OOM-kills recur.
     solver.parameters.num_search_workers = int(os.getenv("SOLVER_WORKERS", "0"))
-
-    callback = SchedulerCallback(x, data, progress_queue)
-    status = solver.Solve(model, callback)
-
-    return solver, status
+    return solver
 
 
 def _compute_gap(solver) -> dict:
@@ -162,22 +241,15 @@ def _solve_worker(job_id: str, raw_data: dict, progress_queue):
     """
     try:
         data = transform_data(raw_data)
-        data['rewards_cfg'] = raw_data.get('rewards_cfg', {})
+        data['rewards_cfg'] = raw_data['rewards_cfg']
+        data['max_solve_seconds'] = raw_data['max_solve_seconds']
+        data['reward_mode']  = raw_data.get('reward_mode', 'points')
+        data['reward_order'] = raw_data.get('reward_order', [])
 
-        solver, status = build_and_solve(data, progress_queue)
+        status, stats = build_and_solve(data, progress_queue)
 
         if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            gap = _compute_gap(solver)
-            progress_queue.put({
-                "type":   "final",
-                "status": "completed",
-                "stats": {
-                    "optimal":         status == cp_model.OPTIMAL,
-                    "elapsed_seconds": round(solver.WallTime(), 2),
-                    "stopped_reason":  "optimal" if status == cp_model.OPTIMAL else "time_limit",
-                    **gap,
-                },
-            })
+            progress_queue.put({"type": "final", "status": "completed", "stats": stats})
         elif status == cp_model.INFEASIBLE:
             issues = diagnose_infeasibility(data)
             error = (
@@ -198,7 +270,7 @@ def _solve_worker(job_id: str, raw_data: dict, progress_queue):
                 "stats":  {
                     "error": (
                         "Solver timed out before finding a solution. Try increasing "
-                        "MAX_SOLVE_TIME or reducing the problem size."
+                        "Max Solve Time in Scheduler Settings, or reducing the problem size."
                     ),
                     "stopped_reason": "time_limit",
                 },
@@ -246,7 +318,7 @@ def run_optimization_task(job_id: str, raw_data: dict):
     update_job(
         job_id,
         status="solving",
-        stats={"time_limit_seconds": float(os.getenv("MAX_SOLVE_TIME", "120"))},
+        stats={"time_limit_seconds": float(raw_data["max_solve_seconds"])},
     )
 
     final_seen = False

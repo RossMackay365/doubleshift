@@ -18,7 +18,7 @@ RECENT_PATH = os.path.join(DATA_DIR, "recent.json")
 EXTENSION = ".doubleshift"
 # Bump when the file format changes, and keep reading older versions.
 FILE_VERSION = 1
-CONTENT_FIELDS = ("data", "reward_config", "last_run")
+CONTENT_FIELDS = ("data", "settings", "last_run")
 RECENT_COUNT = 5
 INVALID_NAME_CHARS = '\\/:*?"<>|'
 

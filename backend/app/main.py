@@ -8,10 +8,8 @@ from .verify import verify_schedule
 from . import schedules
 from pydantic import BaseModel
 from typing import Any
-from dotenv import load_dotenv
 import logging
 
-load_dotenv()
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -42,7 +40,11 @@ async def optimize(request: OptimizeRequest, background_tasks: BackgroundTasks):
         "timeslots":      [s.model_dump() for s in request.timeslots],
         "travel_times":   [tt.model_dump() for tt in request.travel_times],
         "location_names": request.location_names,
-        "rewards_cfg":    dict(request.reward_config) if request.reward_config else {},
+        "assign_trainers": request.assign_trainers,
+        "rewards_cfg":    request.reward_config,
+        "max_solve_seconds": request.max_solve_seconds,
+        "reward_mode":       request.reward_mode,
+        "reward_order":      request.reward_order,
     }
 
     background_tasks.add_task(run_optimization_task, job_id, raw_data)
@@ -88,6 +90,7 @@ async def verify(request: VerifyRequest):
         "timeslots":      [s.model_dump() for s in request.timeslots],
         "travel_times":   [tt.model_dump() for tt in request.travel_times],
         "location_names": request.location_names,
+        "assign_trainers": request.assign_trainers,
     }
 
     schedule_entries = [e.model_dump() for e in request.schedule]
@@ -96,14 +99,14 @@ async def verify(request: VerifyRequest):
     # no job state. The optimality gap is derived on the frontend, which already
     # holds the solver's best_bound from the run.
     try:
-        result = verify_schedule(raw_data, schedule_entries, rewards_cfg=dict(request.reward_config) if request.reward_config else {})
+        result = verify_schedule(raw_data, schedule_entries, request.reward_config)
         return result
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
 
 # --- Saved schedules (.doubleshift files) ---
-# A schedule is identified by its file path. data, reward_config and last_run are
+# A schedule is identified by its file path. data, settings and last_run are
 # stored exactly as the frontend sends them.
 
 class ScheduleCreate(BaseModel):
@@ -112,7 +115,7 @@ class ScheduleCreate(BaseModel):
 
 class ScheduleContents(BaseModel):
     data: Any = None
-    reward_config: Any = None
+    settings: Any = None
     last_run: Any = None
 
 

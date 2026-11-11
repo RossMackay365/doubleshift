@@ -1,8 +1,8 @@
 'use client';
 import { XCircle } from 'lucide-react';
 import { TrainerBreakdownItem } from '@/lib/scoreBreakdown';
-import { REWARD_DAY_PREF, REWARD_B2B, REWARD_NO_TRAVEL, REWARD_NET_HEIGHT, REWARD_ADJ_GROUP_B2B, REWARD_ADJ_GROUP_SAME_DAY, PENALTY_ADJ_BLOCKED, getEffectiveValue, DEFAULT_REWARD_CONFIG } from '@/lib/rewardConfig';
-import { RewardConfig } from '@/lib/types';
+import { rewardPoints } from '@/lib/settings';
+import { ScheduleData, ScheduleSettings } from '@/lib/types';
 
 interface MissedItem { name: string; detail: string }
 
@@ -24,7 +24,8 @@ export default function ScoreBreakdownPanel({
   adjGroupSameDayCount,
   adjGroupB2bPenaltyCount,
   adjGroupB2bPenaltyTrainers = [],
-  rewardConfig,
+  settings,
+  data,
 }: {
   items: TrainerBreakdownItem[];
   genderConsecCount: number;
@@ -37,16 +38,15 @@ export default function ScoreBreakdownPanel({
   adjGroupSameDayCount: number;
   adjGroupB2bPenaltyCount: number;
   adjGroupB2bPenaltyTrainers?: string[];
-  rewardConfig?: RewardConfig;
+  settings: ScheduleSettings;
+  data: ScheduleData;
 }) {
-  const cfg = rewardConfig ?? DEFAULT_REWARD_CONFIG;
-  const rDayPref    = getEffectiveValue(cfg, 'REWARD_DAY_PREF',           REWARD_DAY_PREF);
-  const rB2b        = getEffectiveValue(cfg, 'REWARD_B2B',                REWARD_B2B);
-  const rNoTravel   = getEffectiveValue(cfg, 'REWARD_NO_TRAVEL',          REWARD_NO_TRAVEL);
-  const rNetHeight  = getEffectiveValue(cfg, 'REWARD_NET_HEIGHT',         REWARD_NET_HEIGHT);
-  const rAdjB2b     = getEffectiveValue(cfg, 'REWARD_ADJ_GROUP_B2B',      REWARD_ADJ_GROUP_B2B);
-  const rAdjSameDay = getEffectiveValue(cfg, 'REWARD_ADJ_GROUP_SAME_DAY', REWARD_ADJ_GROUP_SAME_DAY);
-  const rPenBlocked = getEffectiveValue(cfg, 'PENALTY_ADJ_BLOCKED',       PENALTY_ADJ_BLOCKED);
+  const rB2b        = rewardPoints(settings, data, 'REWARD_B2B');
+  const rNoTravel   = rewardPoints(settings, data, 'REWARD_NO_TRAVEL');
+  const rNetHeight  = rewardPoints(settings, data, 'REWARD_NET_HEIGHT');
+  const rAdjB2b     = rewardPoints(settings, data, 'REWARD_ADJ_GROUP_B2B');
+  const rAdjSameDay = rewardPoints(settings, data, 'REWARD_ADJ_GROUP_SAME_DAY');
+  const rPenBlocked = rewardPoints(settings, data, 'PENALTY_ADJ_BLOCKED');
 
   if (items.length === 0) {
     return (
@@ -56,16 +56,9 @@ export default function ScoreBreakdownPanel({
 
   const players = items.filter(it => it.playingGroup !== '');
 
-  // Day Preference: only scored for players with a non-required preference.
-  const dayPrefEligible = players.filter(it => it.dayPref !== 'any' && !it.dayPrefRequired);
-  const dayPrefWinners  = dayPrefEligible.filter(it => it.dayPrefMet);
-  const dayPrefMissed   = dayPrefEligible.filter(it => !it.dayPrefMet);
-  const dayPrefScore    = dayPrefWinners.length * rDayPref;
-
-  // Back-to-Back: only for players who accept coaching on their play day.
-  const b2bEligible = players.filter(it => it.dayPref !== 'different');
-  const b2bWinners  = b2bEligible.filter(it => it.b2bCount > 0);
-  const b2bMissed   = b2bEligible.filter(it => it.b2bCount === 0);
+  // Back-to-Back: player-trainers only.
+  const b2bWinners  = players.filter(it => it.b2bCount > 0);
+  const b2bMissed   = players.filter(it => it.b2bCount === 0);
   const b2bScore    = items.reduce((s, it) => s + it.b2bCount * rB2b, 0);
 
   const adjSameDayScore = adjGroupSameDayCount * rAdjSameDay;
@@ -73,33 +66,15 @@ export default function ScoreBreakdownPanel({
   const adjPenaltyTotal = adjGroupB2bPenaltyCount * rPenBlocked;
 
   const netHeightScore = genderConsecCount * rNetHeight;
-  const grandTotal = dayPrefScore + b2bScore + noTravelDays * rNoTravel + netHeightScore + adjSameDayScore + adjB2bScore - adjPenaltyTotal;
-
-  const dayPrefDetail = (it: TrainerBreakdownItem) =>
-    `prefers ${it.dayPref} day · plays ${it.playingDay}, coaches ${it.coachingDays.join(', ')}`;
+  const grandTotal = b2bScore + noTravelDays * rNoTravel + netHeightScore + adjSameDayScore + adjB2bScore - adjPenaltyTotal;
 
   return (
     <div className="text-sm divide-y divide-gray-100">
-      {rDayPref > 0 && (
-        <RewardSection
-          label="Day Preference"
-          summary={
-            dayPrefEligible.length > 0
-              ? `${dayPrefWinners.length} of ${dayPrefEligible.length} trainers`
-              : players.length > 0 ? 'No trainers have a scored preference' : 'No trainers are players'
-          }
-          score={dayPrefScore}
-          missed={dayPrefMissed.map(it => ({ name: it.name, detail: dayPrefDetail(it) }))}
-        />
-      )}
-
       {rB2b > 0 && (
         <RewardSection
           label="Back-to-Back"
           summary={
-            b2bEligible.length > 0
-              ? `${b2bWinners.length} of ${b2bEligible.length} trainers`
-              : players.length > 0 ? 'No trainers accept same-day coaching' : 'No trainers are players'
+            players.length > 0 ? `${b2bWinners.length} of ${players.length} trainers` : 'No trainers are players'
           }
           score={b2bScore}
           missed={b2bMissed.map(it => ({ name: it.name, detail: `plays in ${it.playingGroup}` }))}

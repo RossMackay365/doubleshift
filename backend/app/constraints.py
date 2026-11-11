@@ -1,12 +1,25 @@
 import itertools
-from .config import resolve_rewards
+
+# Every reward the solver supports. The points for each come with every request (from
+# the schedule's Scheduler Settings); a penalty's points count against the schedule.
+REWARD_KEYS = (
+    'REWARD_B2B', 'REWARD_NO_TRAVEL', 'REWARD_NET_HEIGHT',
+    'REWARD_ADJ_GROUP_B2B', 'REWARD_ADJ_GROUP_SAME_DAY', 'PENALTY_ADJ_BLOCKED',
+)
+
+
+def is_penalty(key: str) -> bool:
+    return key.startswith('PENALTY_')
 
 
 def apply_constraints(model, x, data):
     """
     Applies Hard and Soft constraints to the CP-SAT model.
+
+    Returns each reward's indicator variables: {reward key: [BoolVar, ...]}, where each
+    variable is 1 exactly when that reward is achieved once (or, for a penalty, incurred
+    once). The solver builds its objective from these (see solver.py).
     """
-    r = resolve_rewards(data.get('rewards_cfg', {}))
     num_g = len(data['indices']['g'])
     num_t = len(data['indices']['t'])
     num_c = len(data['indices']['c'])
@@ -100,96 +113,33 @@ def apply_constraints(model, x, data):
 
 
     # --- SOFT CONSTRAINTS (REWARDS) ---
-    rewards = []
+    rewards = {key: [] for key in REWARD_KEYS}
     slots_by_day = _group_slots_by_day(data)
 
-    # 7. Trainer Day Preference (hard when required) + B2B / Day Preference rewards.
-    #    Only player-trainers are affected — nothing here can fire for non-players.
-    day_pref          = data.get('day_pref', ['same'] * num_t)
-    day_pref_required = data.get('day_pref_required', [False] * num_t)
-
+    # 7. Back-to-Back reward: a player-trainer coaches right before or after their own
+    #    group's session (coach→play and play→coach are both rewarded).
     for t_id, t_idx in data['indices']['t'].items():
         playing_groups = [g_idx for g_idx, m_ids in data['members'].items() if t_id in m_ids]
         if not playing_groups:
             continue
 
-        pref      = day_pref[t_idx]
-        required  = day_pref_required[t_idx]
-        # B2B only makes sense for trainers who accept coaching on their play day.
-        b2b_applies = pref in ('same', 'any')
+        coaching = {
+            s: _any_true(model, [x[g, t_idx, c, s] for g in range(num_g) for c in range(num_c) if (g, t_idx, c, s) in x],
+                         f't{t_idx}_coach_s{s}')
+            for s in range(num_s)
+        }
+        playing = {
+            s: _any_true(model, [x[gp, ot, oc, s] for gp in playing_groups for ot in range(num_t) for oc in range(num_c) if (gp, ot, oc, s) in x],
+                         f't{t_idx}_play_s{s}')
+            for s in range(num_s)
+        }
 
-        coaching_day_vars = []   # one BoolVar per day: trainer coaches on that day
-        violated_day_vars = []   # one BoolVar per day: preference broken on that day
-
-        for day, day_slots in slots_by_day.items():
-            day_coaching_vars = []
-            day_playing_vars  = []
-
-            for i, s in enumerate(day_slots):
-
-                coach_var = model.NewBoolVar(f't{t_idx}_coach_s{s}')
-                coaching_sum = sum(x[g, t_idx, c, s] for g in range(num_g) for c in range(num_c) if (g, t_idx, c, s) in x)
-                model.Add(coaching_sum == 1).OnlyEnforceIf(coach_var)
-                model.Add(coaching_sum == 0).OnlyEnforceIf(coach_var.Not())
-                day_coaching_vars.append(coach_var)
-
-                play_var = model.NewBoolVar(f't{t_idx}_play_s{s}')
-                playing_sum = sum(x[gp, ot, oc, s] for gp in playing_groups for ot in range(num_t) for oc in range(num_c) if (gp, ot, oc, s) in x)
-                model.Add(playing_sum == 1).OnlyEnforceIf(play_var)
-                model.Add(playing_sum == 0).OnlyEnforceIf(play_var.Not())
-                day_playing_vars.append(play_var)
-
-                # Back-to-Back Reward — coach→play and play→coach both rewarded
-                if b2b_applies and i + 1 < len(day_slots):
-                    next_s = day_slots[i + 1]
-
-                    play_next = model.NewBoolVar(f't{t_idx}_play_s{next_s}')
-                    playing_next_sum = sum(x[gp, ot, oc, next_s] for gp in playing_groups for ot in range(num_t) for oc in range(num_c) if (gp, ot, oc, next_s) in x)
-                    model.Add(playing_next_sum == 1).OnlyEnforceIf(play_next)
-                    model.Add(playing_next_sum == 0).OnlyEnforceIf(play_next.Not())
-
-                    b2b_cp = model.NewBoolVar(f'b2b_cp_t{t_idx}_s{s}')
-                    model.AddMultiplicationEquality(b2b_cp, [coach_var, play_next])
-                    rewards.append(b2b_cp * r['REWARD_B2B'])
-
-                    coach_next = model.NewBoolVar(f't{t_idx}_coach_next_s{next_s}')
-                    coaching_next_sum = sum(x[g, t_idx, c, next_s] for g in range(num_g) for c in range(num_c) if (g, t_idx, c, next_s) in x)
-                    model.Add(coaching_next_sum == 1).OnlyEnforceIf(coach_next)
-                    model.Add(coaching_next_sum == 0).OnlyEnforceIf(coach_next.Not())
-
-                    b2b_pc = model.NewBoolVar(f'b2b_pc_t{t_idx}_s{s}')
-                    model.AddMultiplicationEquality(b2b_pc, [play_var, coach_next])
-                    rewards.append(b2b_pc * r['REWARD_B2B'])
-
-            if pref == 'any':
-                continue
-
-            is_coaching_on_day = _any_true(model, day_coaching_vars, f't{t_idx}_c_{day}')
-            is_playing_on_day  = _any_true(model, day_playing_vars,  f't{t_idx}_p_{day}')
-            coaching_day_vars.append(is_coaching_on_day)
-
-            # 'same':      broken if coaching on a day they don't play
-            # 'different': broken if coaching on the day they play
-            violated = model.NewBoolVar(f'daypref_viol_t{t_idx}_{day}')
-            play_term = is_playing_on_day.Not() if pref == 'same' else is_playing_on_day
-            model.AddMultiplicationEquality(violated, [is_coaching_on_day, play_term])
-            violated_day_vars.append(violated)
-
-        if pref == 'any' or not violated_day_vars:
-            continue
-
-        if required:
-            # Hard: no day may break the preference. No reward — it can't be traded off.
-            for violated in violated_day_vars:
-                model.Add(violated == 0)
-        else:
-            # Soft: one reward per trainer when they coach at least once and every
-            # coaching day satisfies the preference.
-            coaches_any   = _any_true(model, coaching_day_vars, f'daypref_coaches_t{t_idx}')
-            any_violation = _any_true(model, violated_day_vars, f'daypref_anyviol_t{t_idx}')
-            met = model.NewBoolVar(f'daypref_met_t{t_idx}')
-            model.AddMultiplicationEquality(met, [coaches_any, any_violation.Not()])
-            rewards.append(met * r['REWARD_DAY_PREF'])
+        for day_slots in slots_by_day.values():
+            for s, next_s in zip(day_slots, day_slots[1:]):
+                for name, first, second in (('cp', coaching[s], playing[next_s]), ('pc', playing[s], coaching[next_s])):
+                    b2b = model.NewBoolVar(f'b2b_{name}_t{t_idx}_s{s}')
+                    model.AddMultiplicationEquality(b2b, [first, second])
+                    rewards['REWARD_B2B'].append(b2b)
 
     # No Net Height Change reward: +1 when same gender plays on same court in adjacent slots
     raw_groups = data['raw']['groups']
@@ -218,7 +168,7 @@ def apply_constraints(model, x, data):
 
                     consec = model.NewBoolVar(f'{gender}_consec_c{c}_s{s}')
                     model.AddMultiplicationEquality(consec, [has_s, has_next])
-                    rewards.append(consec * r['REWARD_NET_HEIGHT'])
+                    rewards['REWARD_NET_HEIGHT'].append(consec)
 
     # No Travel reward: +10000 per trainer per day where all activities are at the same venue.
     # Only applies when the trainer has possible activities in 2+ distinct slots on that day
@@ -273,7 +223,7 @@ def apply_constraints(model, x, data):
                 any_cross = _any_true(model, cross_vars, f'sr_t{t_idx}_any_cross_{day}')
                 no_travel = model.NewBoolVar(f'sr_t{t_idx}_no_travel_{day}')
                 model.AddMultiplicationEquality(no_travel, [is_2plus_active, any_cross.Not()])
-                rewards.append(no_travel * r['REWARD_NO_TRAVEL'])
+                rewards['REWARD_NO_TRAVEL'].append(no_travel)
 
     # Adjacent group rewards: B2B + same-day + blocked penalty.
     # Applies to pairs with same gender and adjacent level (±1).
@@ -342,7 +292,7 @@ def apply_constraints(model, x, data):
                                 continue
                             adj_b2b = model.NewBoolVar(f'adj_{a}_{b}_{vi}_{s1}_{s2}')
                             model.AddMultiplicationEquality(adj_b2b, [va, vb])
-                            rewards.append(adj_b2b * r['REWARD_ADJ_GROUP_B2B'])
+                            rewards['REWARD_ADJ_GROUP_B2B'].append(adj_b2b)
 
         # Same-day adjacent reward (additive with B2B) — only when at different slots
         for gi, gj in adj_pairs:
@@ -369,9 +319,9 @@ def apply_constraints(model, x, data):
                         any_overlap = _any_true(model, overlap_vars, f'sd_ovlp_{gi}_{gj}_{vi}_{day}')
                         sd_var = model.NewBoolVar(f'adj_sd_no_ovlp_{gi}_{gj}_{vi}_{day}')
                         model.AddMultiplicationEquality(sd_var, [same_day, any_overlap.Not()])
-                        rewards.append(sd_var * r['REWARD_ADJ_GROUP_SAME_DAY'])
+                        rewards['REWARD_ADJ_GROUP_SAME_DAY'].append(sd_var)
                     else:
-                        rewards.append(same_day * r['REWARD_ADJ_GROUP_SAME_DAY'])
+                        rewards['REWARD_ADJ_GROUP_SAME_DAY'].append(same_day)
 
         # Trainer Cannot Sub penalty: fires whenever a lower-level group's trainer coaches
         # at the same slot a higher-level group is playing, independent of B2B.
@@ -401,9 +351,9 @@ def apply_constraints(model, x, data):
 
                     pen = model.NewBoolVar(f'trainer_sub_pen_{higher_group}_{lower_group}_s{s}')
                     model.AddMultiplicationEquality(pen, [higher_at_s, blk])
-                    rewards.append(pen * (-r['PENALTY_ADJ_BLOCKED']))
+                    rewards['PENALTY_ADJ_BLOCKED'].append(pen)
 
-    model.Maximize(sum(rewards))
+    return rewards
 
 
 def _group_slots_by_day(data):

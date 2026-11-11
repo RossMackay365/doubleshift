@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Trash2 } from 'lucide-react';
 import EditableTable, { Column } from '@/components/EditableTable';
 import { useSchedule } from '@/components/ScheduleProvider';
+import { levelsInUse } from '@/lib/settings';
 import { ScheduleData, TravelTime } from '@/lib/types';
 
 type Tab = 'locations' | 'timeslots' | 'groups' | 'trainers';
@@ -25,17 +26,23 @@ const BASE_COLUMNS: Record<Tab, Column[]> = {
     { key: 'finish', header: 'Finish', placeholder: '10:00' },
   ],
   groups: [
-    { key: 'name',   header: 'Name',   placeholder: 'Ladies Beginner' },
+    { key: 'name',   header: 'Name',   placeholder: 'Beginners', width: '200px' },
     { key: 'level',  header: 'Level',  type: 'number', placeholder: '1', width: '70px' },
-    { key: 'gender', header: 'Gender', type: 'select', options: ['female', 'male'], width: '90px' },
+    { key: 'gender', header: 'Gender', type: 'select', options: ['female', 'male'], width: '120px' },
   ],
   trainers: [
-    { key: 'name',       header: 'Name',         placeholder: 'Alice Coach' },
-    { key: 'ladiesRank', header: 'Female Level',  type: 'number', placeholder: '0', width: '90px' },
-    { key: 'gentsRank',  header: 'Male Level',    type: 'number', placeholder: '0', width: '90px' },
+    { key: 'name',       header: 'Name',         placeholder: 'Alice Coach', width: '200px' },
     { key: 'capacity',   header: 'Capacity',      type: 'number', placeholder: '1', width: '70px' },
   ],
 };
+
+// Trainer level columns: one per gender, or a single Level (stored as the female
+// level) when teams aren't gendered. Hidden when trainers are assigned to groups.
+const GENDERED_LEVEL_COLUMNS: Column[] = [
+  { key: 'ladiesRank', header: 'Female Level', type: 'number', placeholder: '0', width: '90px' },
+  { key: 'gentsRank',  header: 'Male Level',   type: 'number', placeholder: '0', width: '90px' },
+];
+const SINGLE_LEVEL_COLUMN: Column = { key: 'ladiesRank', header: 'Level', type: 'number', placeholder: '0', width: '90px' };
 
 type RowMap = Record<Tab, Record<string, string>[]>;
 
@@ -47,37 +54,22 @@ function parseBitmask(s: string): number[] {
   return s.split('').map(v => (parseInt(v, 10) || 0));
 }
 
+// Training Group slots are stored in a row as a JSON list of group names ('' = empty slot).
+function parseSlots(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value || '[]');
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function capacityOf(row: Record<string, string>): number {
+  return Math.max(1, parseInt(row.capacity, 10) || 1);
+}
+
 function toGender(v: string): 'female' | 'male' {
   return (v ?? '').trim().toLowerCase() === 'male' ? 'male' : 'female';
-}
-
-// Row encoding of the two day-preference checkboxes: 'same' | 'different' | 'both' | 'none'.
-function toDayPrefRow(same: boolean, different: boolean): string {
-  if (same && different) return 'both';
-  if (same) return 'same';
-  if (different) return 'different';
-  return 'none';
-}
-
-function fromDayPrefRow(v: string): { prefSameDay: boolean; prefDifferentDay: boolean } {
-  const n = (v ?? 'same').trim().toLowerCase();
-  return {
-    prefSameDay:      n === 'same' || n === 'both',
-    prefDifferentDay: n === 'different' || n === 'both',
-  };
-}
-
-function parseDayPrefText(raw: string): string {
-  const n = raw.trim().toLowerCase();
-  if (n === 'different' || n === 'diff') return 'different';
-  if (n === 'both' || n === 'any' || n === 'either') return 'both';
-  if (n === 'none' || n === 'neither') return 'none';
-  return 'same';
-}
-
-function parseBoolText(raw: string): string {
-  const n = raw.trim().toUpperCase();
-  return n === 'TRUE' || n === '1' || n === 'YES' || n === 'Y' ? '1' : '0';
 }
 
 function dataToRows(data: ScheduleData): RowMap {
@@ -99,9 +91,7 @@ function dataToRows(data: ScheduleData): RowMap {
       name: t.name, groupID: t.groupID,
       ladiesRank: String(t.ladiesRank), gentsRank: String(t.gentsRank),
       capacity: String(t.capacity ?? 1),
-      // Legacy saved data has no preference fields → same day, not required.
-      dayPref: toDayPrefRow(t.prefSameDay ?? true, t.prefDifferentDay ?? false),
-      prefRequired: t.prefRequired ? '1' : '0',
+      trainingGroups: JSON.stringify(t.trainingGroups ?? []),
       availability_bitmask: t.availability_bitmask.join(','),
     })),
   };
@@ -141,9 +131,9 @@ function rowsToData(rows: RowMap): Omit<ScheduleData, 'travelTimes'> {
       name: r.name, groupID: r.groupID ?? '',
       ladiesRank: parseInt(r.ladiesRank, 10) || 0,
       gentsRank: parseInt(r.gentsRank, 10) || 0,
-      capacity: Math.max(1, parseInt(r.capacity, 10) || 1),
-      ...fromDayPrefRow(r.dayPref),
-      prefRequired: r.prefRequired === '1',
+      capacity: capacityOf(r),
+      // Only the slots shown (one per unit of capacity) count.
+      trainingGroups: parseSlots(r.trainingGroups).slice(0, capacityOf(r)).filter(Boolean),
       availability_bitmask: defaultBitmask(r.availability_bitmask, numSlots),
     })),
   };
@@ -153,60 +143,46 @@ const EMPTY_ROW: Record<Tab, () => Record<string, string>> = {
   locations: () => ({ name: '', courts: '1' }),
   timeslots: () => ({ day: '', start: '', finish: '', location_bitmask: '' }),
   groups:    () => ({ name: '', level: '', gender: 'female', availability_bitmask: '', location_bitmask: '' }),
-  trainers:  () => ({ name: '', groupID: '', ladiesRank: '', gentsRank: '', capacity: '1', dayPref: 'same', prefRequired: '0', availability_bitmask: '' }),
+  trainers:  () => ({ name: '', groupID: '', ladiesRank: '', gentsRank: '', capacity: '1', trainingGroups: '[]', availability_bitmask: '' }),
 };
 
-function DayPrefCell({
-  value, onChange, isPlayer,
+// One dropdown per unit of the trainer's capacity. Each lists only groups no other
+// trainer coaches, that this trainer hasn't already picked in another slot, and that
+// isn't their own Player Group (nobody coaches a group they play in).
+function TrainingGroupsCell({
+  value, onChange, capacity, groupNames, playerGroup, isTakenElsewhere,
 }: {
   value: string;
   onChange: (v: string) => void;
-  isPlayer: boolean;
+  capacity: number;
+  groupNames: string[];
+  playerGroup: string;
+  isTakenElsewhere: (name: string) => boolean;
 }) {
-  if (!isPlayer) {
-    return <span className="text-sm italic text-gray-400">Not a player</span>;
-  }
-  const { prefSameDay, prefDifferentDay } = fromDayPrefRow(value);
-  const boxes: { label: string; checked: boolean; next: (c: boolean) => string }[] = [
-    { label: 'Same day',      checked: prefSameDay,      next: c => toDayPrefRow(c, prefDifferentDay) },
-    { label: 'Different day', checked: prefDifferentDay, next: c => toDayPrefRow(prefSameDay, c) },
-  ];
-  return (
-    <div className="flex flex-wrap gap-x-5 gap-y-2.5 py-1.5">
-      {boxes.map(b => (
-        <label key={b.label} className="flex cursor-pointer flex-col items-center gap-1 select-none min-w-[44px]">
-          <input
-            type="checkbox"
-            checked={b.checked}
-            onChange={e => onChange(b.next(e.target.checked))}
-            className="h-4 w-4 accent-blue-600"
-          />
-          <span className="text-xs leading-none text-gray-500">{b.label}</span>
-        </label>
-      ))}
-    </div>
-  );
-}
+  const slots = parseSlots(value).slice(0, capacity);
+  while (slots.length < capacity) slots.push('');
 
-function RequiredCell({
-  value, onChange, isPlayer,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  isPlayer: boolean;
-}) {
-  if (!isPlayer) {
-    return <span className="text-sm italic text-gray-400">—</span>;
+  function setSlot(i: number, name: string) {
+    const next = [...slots];
+    next[i] = name;
+    onChange(JSON.stringify(next));
   }
+
   return (
-    <div className="flex justify-center py-1.5">
-      <input
-        type="checkbox"
-        checked={value === '1'}
-        onChange={e => onChange(e.target.checked ? '1' : '0')}
-        className="h-4 w-4 accent-blue-600"
-        title="Required: the schedule is infeasible unless this preference is met"
-      />
+    <div className="flex flex-col gap-1 py-1">
+      {slots.map((current, i) => (
+        <select
+          key={i}
+          value={current}
+          onChange={e => setSlot(i, e.target.value)}
+          className="w-full rounded border border-gray-200 bg-transparent px-1.5 py-1 text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">None</option>
+          {groupNames
+            .filter(name => name === current || (name !== playerGroup && !isTakenElsewhere(name) && !slots.includes(name)))
+            .map(name => <option key={name} value={name}>{name}</option>)}
+        </select>
+      ))}
     </div>
   );
 }
@@ -375,7 +351,7 @@ function initialRows(data: ScheduleData | null): RowMap {
 }
 
 export default function DataPage() {
-  const { data, setData } = useSchedule();
+  const { data, setData, settings } = useSchedule();
   // The rows are kept here (they hold half-typed values); every edit is passed up to
   // the open schedule as data, which the header's Save writes to the file.
   const [initial] = useState(() => ({ rows: initialRows(data), travelTimes: data?.travelTimes ?? [] }));
@@ -438,10 +414,10 @@ export default function DataPage() {
     },
   }), [locationNames]);
 
-  const trainerGroupColumn: Column = useMemo(() => ({
+  const playerGroupColumn: Column = useMemo(() => ({
     key: 'groupID',
-    header: 'Group',
-    width: '100px',
+    header: 'Player Group',
+    width: '160px',
     render: (value, onChange) => (
       <select
         value={value}
@@ -464,34 +440,53 @@ export default function DataPage() {
     },
   }), [groupNames]);
 
-  // Day preference cells depend on the row's group (only players have a preference),
-  // so they read `row` rather than living in BASE_COLUMNS.
-  const dayPrefColumn: Column = useMemo(() => ({
-    key: 'dayPref',
-    header: 'Day Pref',
-    width: '180px',
-    render: (value, onChange, row) => (
-      <DayPrefCell value={value} onChange={onChange} isPlayer={(row.groupID ?? '') !== ''} />
-    ),
-    parsePaste: (values) => ({ value: parseDayPrefText(values[0] ?? ''), consumed: 1 }),
-  }), []);
+  // Which trainer row coaches each group, so other trainers' dropdowns can leave it out.
+  const trainingGroupsColumn: Column = useMemo(() => {
+    const coachedBy = new Map<string, Record<string, string>>();
+    for (const row of rows.trainers) {
+      for (const name of parseSlots(row.trainingGroups).slice(0, capacityOf(row))) {
+        if (name) coachedBy.set(name, row);
+      }
+    }
+    return {
+      key: 'trainingGroups',
+      header: 'Training Group',
+      width: '160px',
+      render: (value, onChange, row) => (
+        <TrainingGroupsCell
+          value={value}
+          onChange={onChange}
+          capacity={capacityOf(row)}
+          groupNames={groupNames}
+          playerGroup={row.groupID ?? ''}
+          isTakenElsewhere={name => coachedBy.has(name) && coachedBy.get(name) !== row}
+        />
+      ),
+      // Pasted as group names separated by commas.
+      parsePaste: (values) => {
+        const names = (values[0] ?? '').split(',')
+          .map(raw => groupNames.find(g => g.toLowerCase() === raw.trim().toLowerCase()) ?? '')
+          .filter(Boolean);
+        return { value: JSON.stringify(names), consumed: 1 };
+      },
+    };
+  }, [rows.trainers, groupNames]);
 
-  const requiredColumn: Column = useMemo(() => ({
-    key: 'prefRequired',
-    header: 'Req',
-    width: '60px',
-    render: (value, onChange, row) => (
-      <RequiredCell value={value} onChange={onChange} isPlayer={(row.groupID ?? '') !== ''} />
-    ),
-    parsePaste: (values) => ({ value: parseBoolText(values[0] ?? ''), consumed: 1 }),
-  }), []);
-
-  const columns: Record<Tab, Column[]> = useMemo(() => ({
-    ...BASE_COLUMNS,
-    timeslots: [...BASE_COLUMNS.timeslots, locationColumn],
-    groups:    [...BASE_COLUMNS.groups,   locationColumn, availabilityColumn],
-    trainers:  [...BASE_COLUMNS.trainers, trainerGroupColumn, dayPrefColumn, requiredColumn, availabilityColumn],
-  }), [availabilityColumn, trainerGroupColumn, locationColumn, dayPrefColumn, requiredColumn]);
+  // Which columns show depends on the Scheduler Settings (hidden values are kept, not deleted).
+  const columns: Record<Tab, Column[]> = useMemo(() => {
+    const groupColumns = BASE_COLUMNS.groups.filter(c =>
+      (c.key !== 'level' || levelsInUse(settings, data)) && (c.key !== 'gender' || settings.genderedTeams));
+    const [nameColumn, capacityColumn] = BASE_COLUMNS.trainers;
+    const trainerColumns = settings.assignTrainers
+      ? [nameColumn, capacityColumn, trainingGroupsColumn]
+      : [nameColumn, ...(settings.genderedTeams ? GENDERED_LEVEL_COLUMNS : [SINGLE_LEVEL_COLUMN]), capacityColumn];
+    return {
+      ...BASE_COLUMNS,
+      timeslots: [...BASE_COLUMNS.timeslots, locationColumn],
+      groups:    [...groupColumns, locationColumn, availabilityColumn],
+      trainers:  [...trainerColumns, playerGroupColumn, availabilityColumn],
+    };
+  }, [settings, data, availabilityColumn, playerGroupColumn, trainingGroupsColumn, locationColumn]);
 
   function clearAll() {
     setRows(INIT_ROWS());

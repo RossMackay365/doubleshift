@@ -3,14 +3,22 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def _calculate_qualifications(trainers: list[dict], groups: list[dict]) -> list[list[int]]:
+def _calculate_qualifications(trainers: list[dict], groups: list[dict], assign_trainers: bool) -> list[list[int]]:
     """
     Returns a 2-D matrix [trainer_idx][group_idx] -> 1 (qualified) or 0.
 
-    Rank scale: 1 = highest, 5 = lowest.
+    When trainers are assigned to groups, a trainer qualifies only for their assigned groups.
+
+    Otherwise, rank scale: 1 = highest, 5 = lowest.
     A trainer qualifies for a group when their rank is <= the group's level
     (i.e. their skill is at least as high as the group requires).
     """
+    if assign_trainers:
+        return [
+            [1 if g["groupID"] in t.get("assigned_groups", []) else 0 for g in groups]
+            for t in trainers
+        ]
+
     matrix = []
     for t in trainers:
         row = []
@@ -55,20 +63,6 @@ def _validate_availability_lengths(
                 e["availability_bitmask"] = bitmask[:num_timeslots]
 
 
-def day_preference(trainer: dict) -> str:
-    """
-    Normalises a trainer's day-preference checkboxes to 'same' | 'different' | 'any'.
-    Exactly one ticked -> that one; both or neither ticked -> 'any' (no preference).
-    """
-    same      = bool(trainer.get("prefSameDay", True))
-    different = bool(trainer.get("prefDifferentDay", False))
-    if same and not different:
-        return "same"
-    if different and not same:
-        return "different"
-    return "any"
-
-
 def transform_data(raw_data: dict) -> dict:
     """
     Converts the raw entity lists sent from the frontend into the structure
@@ -81,7 +75,7 @@ def transform_data(raw_data: dict) -> dict:
     {
         "groups":    [{"groupID", "name", "level", "gender", "availability_bitmask"}, ...],
         "trainers":  [{"trainerID", "groupID", "name", "ladiesRank", "gentsRank", "capacity",
-                       "prefSameDay", "prefDifferentDay", "prefRequired", "availability_bitmask"}, ...],
+                       "availability_bitmask", "assigned_groups"}, ...],
         "courts":    [{"courtName", "location"}, ...],
         "timeslots": [{"id", "day", "start", "finish"}, ...],
     }
@@ -97,8 +91,6 @@ def transform_data(raw_data: dict) -> dict:
         "members":  {group_index: [str(trainerID), ...], ...},
         "quals":    [[1/0, ...], ...],          # [trainer_i][group_i]
         "capacity":          [int, ...],        # [trainer_i]
-        "day_pref":          ['same' | 'different' | 'any', ...],  # [trainer_i]
-        "day_pref_required": [bool, ...],       # [trainer_i]
         "availability": {
             "trainers": [[1/0, ...], ...],      # [trainer_i][slot_i]
             "groups":   [[1/0, ...], ...],      # [group_i][slot_i]
@@ -147,18 +139,11 @@ def transform_data(raw_data: dict) -> dict:
         if gid in g_idx and tid:
             members_in_group[g_idx[gid]].append(tid)
 
-    quals         = _calculate_qualifications(trainers, groups)
+    assign_trainers = bool(raw_data.get("assign_trainers", False))
+    quals         = _calculate_qualifications(trainers, groups, assign_trainers)
     trainer_avail = [t["availability_bitmask"] for t in trainers]
     group_avail   = [g["availability_bitmask"] for g in groups]
     capacity      = [max(1, int(t.get("capacity", 1))) for t in trainers]
-
-    # Per-trainer day preference ('same' | 'different' | 'any') and whether it is a
-    # hard requirement. 'any' is never required (nothing to enforce).
-    day_pref          = [day_preference(t) for t in trainers]
-    day_pref_required = [
-        bool(t.get("prefRequired", False)) and day_pref[i] != "any"
-        for i, t in enumerate(trainers)
-    ]
 
     # court index → venue name
     court_venue = {i: c.get("location", "") for i, c in enumerate(courts)}
@@ -180,9 +165,8 @@ def transform_data(raw_data: dict) -> dict:
         "indices": {"t": t_idx, "g": g_idx, "s": s_idx, "c": c_idx},
         "members":  members_in_group,
         "quals":    quals,
+        "assign_trainers": assign_trainers,
         "capacity": capacity,
-        "day_pref":          day_pref,
-        "day_pref_required": day_pref_required,
         "availability": {
             "trainers": trainer_avail,
             "groups":   group_avail,
