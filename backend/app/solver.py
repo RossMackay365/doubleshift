@@ -1,5 +1,5 @@
 from ortools.sat.python import cp_model
-from .constraints import apply_constraints, is_penalty
+from .constraints import apply_constraints, is_penalty, slot_allows_court
 from .transform import transform_data
 from .diagnostics import diagnose_infeasibility
 from .state import update_job, get_job, register_process, unregister_process
@@ -108,11 +108,9 @@ def build_and_solve(data: dict, progress_queue):
                     if not (data["availability"]["trainers"][t][s] and
                             data["availability"]["groups"][g][s]):
                         continue
-                    # Skip if this timeslot does not apply to this court's location
-                    if loc_idx is not None:
-                        ts_loc = data["raw"]["timeslots"][s].get("location_bitmask", [])
-                        if ts_loc and loc_idx < len(ts_loc) and ts_loc[loc_idx] == 0:
-                            continue
+                    # Skip if this timeslot doesn't run on this court (or its location)
+                    if not slot_allows_court(data["raw"]["timeslots"][s], data["raw"]["courts"][c], location_to_idx):
+                        continue
 
                     x[g, t, c, s] = model.NewBoolVar(f"x_g{g}_t{t}_c{c}_s{s}")
 
@@ -298,7 +296,7 @@ def _solve_worker(job_id: str, raw_data: dict, progress_queue):
 
 
 
-def run_optimization_task(job_id: str, raw_data: dict):
+def run_solve_task(job_id: str, raw_data: dict):
     """
     Background task (runs in the parent process): spawn a killable solver child,
     stream its progress into shared job state, and finalize. Running the solve in

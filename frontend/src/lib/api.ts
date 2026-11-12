@@ -37,7 +37,7 @@ function withIDs(rawData: ScheduleData, settings: ScheduleSettings) {
   return { groups, trainers, timeslots, courts, travel_times, location_names, assign_trainers: settings.assignTrainers };
 }
 
-export async function startOptimization(data: ScheduleData, settings: ScheduleSettings): Promise<{ job_id: string }> {
+export async function startSolve(data: ScheduleData, settings: ScheduleSettings): Promise<{ job_id: string }> {
   const payload = {
     ...withIDs(data, settings),
     reward_config: rewardsPayload(settings, data),
@@ -45,7 +45,7 @@ export async function startOptimization(data: ScheduleData, settings: ScheduleSe
     reward_mode: settings.rewardMode,
     reward_order: rankedRewards(settings, data).map(r => r.key),
   };
-  const res = await fetch(`${API_BASE}/api/optimize`, {
+  const res = await fetch(`${API_BASE}/api/solve`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -60,7 +60,7 @@ export async function getJobStatus(jobId: string): Promise<JobStatus> {
   return res.json();
 }
 
-export async function cancelOptimization(jobId: string): Promise<void> {
+export async function cancelSolve(jobId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/cancel/${jobId}`, { method: 'POST' });
   if (!res.ok) throw new Error(await res.text());
 }

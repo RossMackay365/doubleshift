@@ -1,7 +1,7 @@
 'use client';
 import { createContext, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { getSchedule, saveSchedule, startOptimization, getJobStatus, cancelOptimization } from '@/lib/api';
+import { getSchedule, saveSchedule, startSolve, getJobStatus, cancelSolve } from '@/lib/api';
 import { DEFAULT_SETTINGS, withDefaults, withUnavailableOff } from '@/lib/settings';
 import { JobStatus, ScheduleContents, ScheduleData, ScheduleSettings } from '@/lib/types';
 import ScheduleNotFound from '@/components/ScheduleNotFound';
@@ -159,7 +159,7 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
     setStartedAt(Date.now());
     const runSettings = settings;
     try {
-      const { job_id } = await startOptimization(data, runSettings);
+      const { job_id } = await startSolve(data, runSettings);
       jobIdRef.current = job_id;
       setActiveRun({ job_id, status: 'pending', stats: {} as JobStatus['stats'], result: null, settings: runSettings });
       intervalRef.current = setInterval(() => poll(job_id, runSettings), POLL_MS);
@@ -181,7 +181,7 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
     try {
       // Keep polling: the backend marks the job 'cancelled' and the next poll then
       // stores the best schedule found so far as the last run.
-      await cancelOptimization(jobId);
+      await cancelSolve(jobId);
     } catch (e) {
       setRunError(String(e));
       setCancelling(false);
@@ -191,7 +191,7 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
   // Leaving the schedule mid-run: stop polling and cancel the job so it stops using CPU.
   useEffect(() => () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
-    if (jobIdRef.current) cancelOptimization(jobIdRef.current).catch(() => {});
+    if (jobIdRef.current) cancelSolve(jobIdRef.current).catch(() => {});
   }, []);
 
   // Ctrl+S saves the whole schedule, from any page.

@@ -67,12 +67,16 @@ A solver run also lives in `ScheduleProvider` (`startRun`, `cancelRun`, `activeR
 
 Every edit updates the open schedule's working copy (see Schedules above). The four tabs — Locations, Timeslots, Groups, Trainers — each render an `EditableTable`. You can paste directly from a spreadsheet; the table's `parsePaste` callbacks handle column-aware parsing.
 
+Timeslots may overlap only on different courts: `timeslotClashes()` in `lib/settings.ts` lists any that overlap on the same court, shown on the Timeslots tab and blocking a run.
+
 **Availability** and **location** columns use bitmask arrays: one bit per timeslot/location, 1 = active. These render as inline checkbox grids rather than raw numbers. Paste `1,0,1,0` or a tab-separated row of `TRUE`/`FALSE` values and they will be interpreted correctly.
 
 **Player Group** — each trainer optionally belongs to one group (they "play" in it). This field is a dropdown populated from the Groups tab. At send-time, the group name is resolved to the group's generated ID.
 
 **Columns follow the Scheduler Settings** (hidden values are kept, not deleted):
 - *Gendered Teams* off: no Gender column on Groups, and a single **Level** column on Trainers (stored as the female level).
+- *Court-specific Timeslots* on: the Timeslots tab's **Locations** column becomes **Courts**, with a checkbox per court grouped by location. Courts are stored by name; all ticked is stored as "no limit".
+- *Name Courts* on (forced on by court-specific timeslots): the Locations tab gains **Court Names**, one box per court. A court's identity is "location + name" (`expandLocations` in `lib/types.ts`), so names only need to be unique within a location; unnamed courts keep their number ("Club A 3"). `courtNameProblems()` in `lib/settings.ts` blocks a run while names are missing (with court-specific timeslots) or duplicated. Renaming a court or its location on the Locations tab carries that court's timeslot ticks over to the new name (`updateTab` in the Data page).
 - *Assign Trainers to Groups* on: Trainers lose their level columns and gain **Training Group** — one dropdown per unit of capacity, each listing only groups no other trainer coaches. Groups lose their **Level** column too, unless a level-based reward is on.
 
 `applySettings()` in `lib/settings.ts` produces the data as the solver sees it under the settings (one gender when teams aren't gendered, level 1 when levels aren't used). The API calls, the score breakdown and the schedule grid all use it.
@@ -85,7 +89,7 @@ The frontend stores entities without IDs to keep the saved schema clean. `withID
 
 ### Running the Solver (`/run`)
 
-Clicking **Run** (disabled while assigned trainers leave a group uncovered) calls `POST /api/optimize` and then polls `GET /api/status/{job_id}` every second. When the run finishes, it becomes the schedule's last run (saved with the header's Save). Intermediate solutions appear in the schedule grid as they are found. The gap percentage shows how far the current solution is from the theoretical optimum.
+Clicking **Run** (disabled while assigned trainers leave a group uncovered) calls `POST /api/solve` and then polls `GET /api/status/{job_id}` every second. When the run finishes, it becomes the schedule's last run (saved with the header's Save). Intermediate solutions appear in the schedule grid as they are found. The gap percentage shows how far the current solution is from the theoretical optimum.
 
 Scores are displayed divided by 10,000. The solver uses large integers internally to keep everything in integer arithmetic; the division produces a more readable decimal.
 
@@ -97,7 +101,9 @@ Scores are displayed divided by 10,000. The solver uses large integers internall
 - **Verify** sends the edited schedule to `POST /api/verify` — the backend checks all hard constraints and returns any violations plus a score
 - **Save changes** is only enabled after a clean verify. It applies the edits to the schedule's last run; the header's Save then writes them to the file.
 
-In hierarchical mode there is no single score or gap: while running, the stats show which reward is being optimised (stage *n* of *m*), and afterwards (and after Verify) a **Results by priority** list shows how often each reward was achieved.
+In hierarchical mode there is no single score or gap: while running, the stats show which reward is being optimised (stage *n* of *m*). The **Score breakdown** shows how each reward did.
+
+The schedule is shown as a week-view calendar: each session is placed by its real times, with courts as columns under each day. As many whole days as fit (court columns at least 110px) sit side by side, spread evenly over rows; every day panel has the same width and time range, so they line up, and only a day too wide for the screen scrolls sideways. In edit mode, drag a session onto another to swap them or onto an empty slot to move it.
 
 Ctrl+S always saves the whole file, including in edit mode (edits not yet applied with **Save changes** aren't included).
 
@@ -112,7 +118,7 @@ Runs send `reward_config` (`{ REWARD_KEY: points }`, `0` for rewards that are of
 
 ### Score Breakdown
 
-`computeScoreBreakdown()` in `lib/scoreBreakdown.ts` calculates a per-reward breakdown client-side, mirroring the backend's scoring logic. The result drives `ScoreBreakdownPanel`, which shows per-trainer Back-to-Back contributions, No Travel trainer-days, and adjacent group statistics including penalty occurrences.
+`computeScoreBreakdown()` in `lib/scoreBreakdown.ts` calculates a per-reward breakdown client-side, mirroring the backend's scoring logic. The result drives `ScoreBreakdownPanel`, which shows Same Day and wait-time figures per trainer, No Travel trainer-days, and adjacent group statistics including penalty occurrences.
 
 ## Notes for Contributors
 

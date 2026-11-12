@@ -1,7 +1,10 @@
 from collections import defaultdict
 from typing import Optional
 from .transform import transform_data
-from .constraints import REWARD_KEYS, is_penalty
+from .constraints import (
+    REWARD_KEYS, is_penalty, clashing_slot_pairs, consecutive_slot_pairs, group_slots_by_day,
+    slot_allows_court,
+)
 
 
 def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, best_bound: Optional[float] = None) -> dict:
@@ -78,15 +81,14 @@ def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, b
                 f"Trainer '{t_name}' plays in group '{g_name}' and cannot also coach it"
             )
 
-        # Location bitmask checks
+        # Timeslot and location restrictions
+        if not slot_allows_court(slot, courts[ci], loc_to_idx):
+            violations.append(
+                f"Timeslot '{slot_label}' doesn't run on court '{courts[ci]['courtName']}'"
+            )
         venue   = courts[ci].get('location', '') if courts else ''
         loc_idx = loc_to_idx.get(venue)
         if loc_idx is not None:
-            ts_loc = slot.get('location_bitmask', [])
-            if ts_loc and loc_idx < len(ts_loc) and ts_loc[loc_idx] == 0:
-                violations.append(
-                    f"Timeslot '{slot_label}' does not apply to location '{venue}'"
-                )
             g_loc = groups[gi].get('location_bitmask', [])
             if g_loc and loc_idx < len(g_loc) and g_loc[loc_idx] == 0:
                 violations.append(
@@ -118,6 +120,22 @@ def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, b
                 f"has {len(gnames)} groups: {', '.join(gnames)}"
             )
 
+    # Slots whose times overlap (e.g. 16:30–18:00 and 17:00–18:30) clash too.
+    clashes = clashing_slot_pairs(timeslots)
+
+    def when(si):
+        slot = timeslots[si]
+        return f"{slot['day']} {slot['start']}–{slot['finish']}"
+
+    for s1, s2 in clashes:
+        for ci in range(len(courts)):
+            for g1 in court_slot.get((ci, s1), []):
+                for g2 in court_slot.get((ci, s2), []):
+                    violations.append(
+                        f"Court '{courts[ci]['courtName']}' has overlapping sessions: "
+                        f"'{g1}' ({when(s1)}) and '{g2}' ({when(s2)})"
+                    )
+
     # --- Hard 3+4: Trainer capacity and per-slot conflict ---
     trainer_groups: dict = defaultdict(list)
     trainer_slot_groups: dict = defaultdict(list)
@@ -141,6 +159,15 @@ def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, b
                 f"{slot['day']} {slot['start']}: {', '.join(gnames)}"
             )
 
+    for s1, s2 in clashes:
+        for ti in range(len(trainers)):
+            for g1 in trainer_slot_groups.get((ti, s1), []):
+                for g2 in trainer_slot_groups.get((ti, s2), []):
+                    violations.append(
+                        f"Trainer '{trainers[ti]['name']}' coaches overlapping sessions: "
+                        f"'{g1}' ({when(s1)}) and '{g2}' ({when(s2)})"
+                    )
+
     # --- Hard 5: Trainer can't play and coach at the same slot ---
     playing_slots: dict = defaultdict(set)   # ti -> {si, ...}
     coaching_slots: dict = defaultdict(set)  # ti -> {si, ...}
@@ -161,13 +188,18 @@ def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, b
                 f"Trainer '{trainers[ti]['name']}' is both playing and coaching "
                 f"at {slot['day']} {slot['start']}–{slot['finish']}"
             )
+        for s1, s2 in clashes:
+            for play_s, coach_s in ((s1, s2), (s2, s1)):
+                if play_s in playing_slots[ti] and coach_s in coaching_slots[ti]:
+                    violations.append(
+                        f"Trainer '{trainers[ti]['name']}' coaches ({when(coach_s)}) while their own "
+                        f"group plays at an overlapping time ({when(play_s)})"
+                    )
 
     # --- Hard 6: Trainer travel time ---
     travel_minutes = data.get('travel_minutes', {})
     if travel_minutes:
-        slots_by_day: dict = defaultdict(list)
-        for i, s in enumerate(timeslots):
-            slots_by_day[s['day']].append(i)
+        slots_by_day = group_slots_by_day(timeslots)
 
         # Build (trainer_index, slot_index) → venue for coaching and playing
         trainer_slot_venue: dict = defaultdict(dict)
@@ -195,7 +227,7 @@ def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, b
                         if travel == 0:
                             continue
                         gap = _parse_hhmm(timeslots[s2]['start']) - _parse_hhmm(timeslots[s1]['finish'])
-                        if gap < travel:
+                        if 0 <= gap < travel:  # a negative gap is an overlap, reported above
                             violations.append(
                                 f"Trainer '{trainers[ti]['name']}' cannot travel from '{v1}' to '{v2}' "
                                 f"({gap} min gap, needs {travel} min) between "
@@ -226,9 +258,8 @@ def _count_rewards(data: dict, parsed: list) -> dict:
     courts    = raw['courts']
     members   = data['members']
 
-    slots_by_day: dict = defaultdict(list)
-    for i, s in enumerate(timeslots):
-        slots_by_day[s['day']].append(i)
+    slots_by_day = group_slots_by_day(timeslots)
+    consecutive  = consecutive_slot_pairs(timeslots)
 
     coaching_slots: dict = defaultdict(set)
     playing_slots: dict  = defaultdict(set)
@@ -240,19 +271,22 @@ def _count_rewards(data: dict, parsed: list) -> dict:
                 ti2 = data['indices']['t'][t_key]
                 playing_slots[ti2].add(si)
 
-    # Back-to-Back reward — player-trainers only (mirrors constraints.py).
+    # Same Day reward and Wait Time penalty, per trainer over all their activities
+    # (mirrors constraints.py).
     counts = {key: 0 for key in REWARD_KEYS}
     for ti in range(len(trainers)):
-        c_slots = coaching_slots[ti]
-        p_slots = playing_slots[ti]
-        if not p_slots:
-            continue
-        for day_slots in slots_by_day.values():
-            for s, next_s in zip(day_slots, day_slots[1:]):
-                if s in c_slots and next_s in p_slots:
-                    counts['REWARD_B2B'] += 1
-                if s in p_slots and next_s in c_slots:
-                    counts['REWARD_B2B'] += 1
+        active = coaching_slots[ti] | playing_slots[ti]
+        days = {timeslots[si]['day'] for si in active}
+        if len(days) <= 1:
+            counts['REWARD_SAME_DAY'] += 1
+        for day in days:
+            day_slots = [si for si in active if timeslots[si]['day'] == day]
+            if len(day_slots) < 2:
+                continue
+            starts   = [_parse_hhmm(timeslots[si]['start'])  for si in day_slots]
+            finishes = [_parse_hhmm(timeslots[si]['finish']) for si in day_slots]
+            busy = sum(f - st for st, f in zip(starts, finishes))
+            counts['PENALTY_WAIT_TIME'] += max(0, max(finishes) - min(starts) - busy)
 
     # No Net Height Change reward: per-court consecutive same-gender slots
     groups = raw['groups']
@@ -262,18 +296,15 @@ def _count_rewards(data: dict, parsed: list) -> dict:
 
     num_c = len(courts)
     for c in range(num_c):
-        for day, day_slots in slots_by_day.items():
-            for i in range(len(day_slots) - 1):
-                s1 = day_slots[i]
-                s2 = day_slots[i + 1]
-                gi_s1 = groups_at_court_slot.get((c, s1), [])
-                gi_s2 = groups_at_court_slot.get((c, s2), [])
-                if not gi_s1 or not gi_s2:
-                    continue
-                for gender in ('female', 'male'):
-                    if (any(str(groups[gi].get('gender', '')).strip().lower() == gender for gi in gi_s1) and
-                            any(str(groups[gi].get('gender', '')).strip().lower() == gender for gi in gi_s2)):
-                        counts['REWARD_NET_HEIGHT'] += 1
+        for s1, s2 in consecutive:
+            gi_s1 = groups_at_court_slot.get((c, s1), [])
+            gi_s2 = groups_at_court_slot.get((c, s2), [])
+            if not gi_s1 or not gi_s2:
+                continue
+            for gender in ('female', 'male'):
+                if (any(str(groups[gi].get('gender', '')).strip().lower() == gender for gi in gi_s1) and
+                        any(str(groups[gi].get('gender', '')).strip().lower() == gender for gi in gi_s2)):
+                    counts['REWARD_NET_HEIGHT'] += 1
 
     # No Travel reward: +100 per trainer per day where all activities are at the same venue.
     # Mirrors constraints.py: fires only when trainer has structural access to 2+ venues that
@@ -314,12 +345,10 @@ def _count_rewards(data: dict, parsed: list) -> dict:
                         if venue in trainer_day_venues[ti][day]:
                             continue
                         loc_idx = loc_to_idx.get(venue)
-                        if loc_idx is not None:
-                            if g_loc and loc_idx < len(g_loc) and g_loc[loc_idx] == 0:
-                                continue
-                            ts_loc = slot.get('location_bitmask', [])
-                            if ts_loc and loc_idx < len(ts_loc) and ts_loc[loc_idx] == 0:
-                                continue
+                        if loc_idx is not None and g_loc and loc_idx < len(g_loc) and g_loc[loc_idx] == 0:
+                            continue
+                        if not any(slot_allows_court(slot, courts[ci], loc_to_idx) for ci in courts_by_venue[venue]):
+                            continue
                         trainer_day_venues[ti][day].add(venue)
 
         # Playing paths: trainer's group can be coached at a venue when the group is available
@@ -340,12 +369,10 @@ def _count_rewards(data: dict, parsed: list) -> dict:
                         if venue in trainer_day_venues[ti2][day]:
                             continue
                         loc_idx = loc_to_idx.get(venue)
-                        if loc_idx is not None:
-                            if g_loc and loc_idx < len(g_loc) and g_loc[loc_idx] == 0:
-                                continue
-                            ts_loc = slot.get('location_bitmask', [])
-                            if ts_loc and loc_idx < len(ts_loc) and ts_loc[loc_idx] == 0:
-                                continue
+                        if loc_idx is not None and g_loc and loc_idx < len(g_loc) and g_loc[loc_idx] == 0:
+                            continue
+                        if not any(slot_allows_court(slot, courts[ci], loc_to_idx) for ci in courts_by_venue[venue]):
+                            continue
                         trainer_day_venues[ti2][day].add(venue)
 
         # Build actual venue assignments from the schedule.
@@ -375,7 +402,8 @@ def _count_rewards(data: dict, parsed: list) -> dict:
                 if len(active_venues) == 1:
                     counts['REWARD_NO_TRAVEL'] += 1
 
-    # Adjacent group rewards: B2B + same-day + blocked penalty.
+    # Adjacent group rewards (B2B + same day) and the Trainer Cannot Sub penalty, for pairs
+    # of groups with the same gender and adjacent levels (±1). Mirrors constraints.py.
     multi_location = len({v for v in court_venue.values() if v}) >= 2
     group_slot: dict = {}   # gi -> si
     group_venue: dict = {}  # gi -> venue name
@@ -383,56 +411,42 @@ def _count_rewards(data: dict, parsed: list) -> dict:
         group_slot[gi] = si
         group_venue[gi] = courts[ci].get('location', '') if ci < len(courts) else ''
 
+    consecutive_set = set(consecutive)
+    same_time = {si: {si} for si in range(len(timeslots))}  # each slot plus those overlapping it
+    for s1, s2 in clashing_slot_pairs(timeslots):
+        same_time[s1].add(s2)
+        same_time[s2].add(s1)
+
     for gi in range(len(groups)):
         gender_i = str(groups[gi].get('gender', '')).strip().lower()
         level_i  = int(groups[gi].get('level', 0))
         if gender_i not in ('female', 'male') or gi not in group_slot:
             continue
-        si_i, vi_i = group_slot[gi], group_venue[gi]
-        day_i = timeslots[si_i]['day']
-
         for gj in range(gi + 1, len(groups)):
             gender_j = str(groups[gj].get('gender', '')).strip().lower()
             level_j  = int(groups[gj].get('level', 0))
-            if gender_i != gender_j or abs(level_i - level_j) != 1:
+            if gender_i != gender_j or abs(level_i - level_j) != 1 or gj not in group_slot:
                 continue
-            if gj not in group_slot:
+            si_i, si_j = group_slot[gi], group_slot[gj]
+
+            # Penalty: one per slot where a player-trainer from the lower-level group coaches
+            # while the higher-level group plays (in that slot or an overlapping one).
+            # Level 1 is the highest.
+            higher_slot, lower_group = (si_i, gj) if level_i < level_j else (si_j, gi)
+            member_coaching: set = set()
+            for t_id in members.get(lower_group, []):
+                if t_id in data['indices']['t']:
+                    member_coaching |= coaching_slots[data['indices']['t'][t_id]]
+            counts['PENALTY_ADJ_BLOCKED'] += len(member_coaching & same_time[higher_slot])
+
+            # Same day (and same venue, when there are several), in different slots.
+            if timeslots[si_i]['day'] != timeslots[si_j]['day'] or si_i == si_j:
                 continue
-            si_j, vi_j = group_slot[gj], group_venue[gj]
-            if timeslots[si_j]['day'] != day_i:
+            if multi_location and group_venue[gi] != group_venue[gj]:
                 continue
-            if multi_location and vi_i != vi_j:
-                continue
-            if si_i == si_j:
-                continue
-            # Same day + same venue (different slots)
             counts['REWARD_ADJ_GROUP_SAME_DAY'] += 1
-            day_slots = slots_by_day[day_i]
-            try:
-                idx_i = day_slots.index(si_i)
-                idx_j = day_slots.index(si_j)
-            except ValueError:
-                continue
-            if abs(idx_i - idx_j) == 1:
+            if (si_i, si_j) in consecutive_set or (si_j, si_i) in consecutive_set:
                 counts['REWARD_ADJ_GROUP_B2B'] += 1
-            # Penalty: member of lower-level group coaching when higher-level group plays,
-            # independent of B2B — fires any time the slots coincide.
-            if level_i < level_j:
-                # gi is higher tier; check if gj's trainer is coaching when gi plays
-                for t_id in members.get(gj, []):
-                    if t_id in data['indices']['t']:
-                        ti_m = data['indices']['t'][t_id]
-                        if si_i in coaching_slots[ti_m]:
-                            counts['PENALTY_ADJ_BLOCKED'] += 1
-                            break
-            else:
-                # gj is higher tier; check if gi's trainer is coaching when gj plays
-                for t_id in members.get(gi, []):
-                    if t_id in data['indices']['t']:
-                        ti_m = data['indices']['t'][t_id]
-                        if si_j in coaching_slots[ti_m]:
-                            counts['PENALTY_ADJ_BLOCKED'] += 1
-                            break
 
     return counts
 

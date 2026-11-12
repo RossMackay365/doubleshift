@@ -1,14 +1,22 @@
-import { RewardSetting, ScheduleData, ScheduleSettings } from './types';
+import { RewardSetting, ScheduleData, ScheduleSettings, expandLocations, slotRunsOn, slotsOverlap } from './types';
 
 // Every reward the solver supports (the keys must match REWARD_KEYS in the backend's
 // constraints.py), in default priority order. These are the only default points: the
 // backend has none and requires all of them. The penalty's points are subtracted.
 export const REWARDS = [
   {
-    key: 'REWARD_B2B',
-    label: 'Back-to-Back',
-    description: 'A player-trainer coaches right before or after their own session.',
+    key: 'REWARD_SAME_DAY',
+    label: 'Same Day',
+    description: "A trainer's sessions (coaching, and playing in their own group) all fall on one day, so they only need to come in once.",
     defaultPoints: 10_000,
+  },
+  {
+    key: 'PENALTY_WAIT_TIME',
+    label: 'Minimise Wait Time',
+    description: 'Penalises every minute a trainer waits between their sessions on the same day.',
+    defaultPoints: 100,
+    isPenalty: true,
+    perMinute: true,
   },
   {
     key: 'PENALTY_ADJ_BLOCKED',
@@ -55,6 +63,8 @@ export const DEFAULT_SETTINGS: ScheduleSettings = {
   maxSolveSeconds: 120,
   assignTrainers: false,
   genderedTeams: true,
+  courtTimeslots: false,
+  nameCourts: false,
   rewardMode: 'points',
   rewards: REWARDS.map(r => ({ key: r.key, enabled: true, points: r.defaultPoints })),
 };
@@ -121,10 +131,16 @@ export function levelsInUse(settings: ScheduleSettings, data: ScheduleData | nul
 // - Teams not gendered: every group is treated as female and trainers use only their
 //   female level (the single "Level" column).
 // - Levels not in use: every group is level 1.
+// - Timeslots are limited by court (court-specific timeslots) or by location, not both.
+// - Courts not named: court names are ignored, so courts are numbered.
 export function applySettings(data: ScheduleData, settings: ScheduleSettings): ScheduleData {
   const useLevels = levelsInUse(settings, data);
   return {
     ...data,
+    locations: data.locations.map(l => (courtsNamed(settings) ? l : { ...l, courtNames: undefined })),
+    timeslots: data.timeslots.map(t => (settings.courtTimeslots
+      ? { ...t, location_bitmask: undefined }
+      : { ...t, courts: undefined })),
     groups: data.groups.map(g => ({
       ...g,
       gender: settings.genderedTeams ? g.gender : 'female',
@@ -135,4 +151,46 @@ export function applySettings(data: ScheduleData, settings: ScheduleSettings): S
       gentsRank: settings.genderedTeams ? t.gentsRank : 0,
     })),
   };
+}
+
+// Court names are in use when Name Courts is on, and always with court-specific timeslots
+// (where they're required, so the courts are easy to tell apart).
+export function courtsNamed(settings: ScheduleSettings): boolean {
+  return settings.nameCourts || settings.courtTimeslots;
+}
+
+// Problems with court names that block a run: with court-specific timeslots every court
+// needs a name, and names must be unique within a location.
+export function courtNameProblems(data: ScheduleData, settings: ScheduleSettings): string[] {
+  if (!courtsNamed(settings)) return [];
+  const problems: string[] = [];
+  for (const loc of data.locations) {
+    const names = Array.from({ length: loc.courts }, (_, i) => loc.courtNames?.[i]?.trim() ?? '');
+    const unnamed = names.filter(n => !n).length;
+    if (settings.courtTimeslots && unnamed > 0) {
+      problems.push(`${loc.name}: ${unnamed} court${unnamed === 1 ? '' : 's'} not named`);
+    }
+    const duplicates = [...new Set(names.filter((n, i) => n && names.indexOf(n) !== i))];
+    if (duplicates.length > 0) problems.push(`${loc.name}: more than one court named ${duplicates.join(', ')}`);
+  }
+  return problems;
+}
+
+// Timeslots whose times overlap on the same court. A court can't run two sessions at once,
+// so overlapping timeslots must be on different courts; these block a run.
+export function timeslotClashes(data: ScheduleData, settings: ScheduleSettings): string[] {
+  const { timeslots, locations } = applySettings(data, settings);
+  const courts = expandLocations(locations);
+  const locationNames = locations.map(l => l.name);
+  const clashes: string[] = [];
+  timeslots.forEach((a, i) => {
+    for (const b of timeslots.slice(i + 1)) {
+      if (!slotsOverlap(a, b)) continue;
+      const shared = courts.filter(c => slotRunsOn(a, c, locationNames) && slotRunsOn(b, c, locationNames));
+      if (shared.length > 0) {
+        clashes.push(`${a.day} ${a.start}–${a.finish} and ${b.start}–${b.finish} overlap on ${shared.map(c => c.courtName).join(', ')}`);
+      }
+    }
+  });
+  return clashes;
 }

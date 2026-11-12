@@ -9,6 +9,8 @@ export interface ScheduleSettings {
   maxSolveSeconds: number;
   assignTrainers: boolean;   // trainers are assigned to their groups rather than allocated by the solver
   genderedTeams: boolean;
+  courtTimeslots: boolean;   // timeslots are chosen per court rather than per location
+  nameCourts: boolean;       // courts have names (always on with court-specific timeslots)
   rewardMode: 'points' | 'hierarchical';
   rewards: RewardSetting[];  // list order is the priority order in hierarchical mode
 }
@@ -38,6 +40,7 @@ export interface Trainer {
 export interface Location {
   name: string;
   courts: number;
+  courtNames?: string[]; // optional name per court (Name Courts setting); blank = its number
 }
 
 export interface TravelTime {
@@ -49,7 +52,8 @@ export interface TravelTime {
 // Internal type used by ScheduleGrid and derived from Location[].
 // Not stored directly — computed via expandLocations().
 export interface Court {
-  courtName: string;
+  courtName: string; // identity used everywhere: "<location> <name or number>", e.g. "Club A Show Court"
+  label: string;     // for display: the court's name, or "Court 3" when unnamed
   location: string;
 }
 
@@ -58,6 +62,7 @@ export interface Timeslot {
   start: string;
   finish: string;
   location_bitmask?: number[];
+  courts?: string[]; // court-specific timeslots: names of the courts it runs on (empty = all)
 }
 
 export interface ScheduleData {
@@ -133,11 +138,50 @@ export interface VerifyResult {
 }
 
 // Expand Location[] into Court[] for use in ScheduleGrid and API calls.
+// A court's name only needs to be unique within its location, because its identity
+// includes the location. Unnamed courts keep their number ("Club A 3").
 export function expandLocations(locations: Location[]): Court[] {
   return locations.flatMap(loc =>
-    Array.from({ length: loc.courts }, (_, i) => ({
-      courtName: `${loc.name} ${i + 1}`,
-      location: loc.name,
-    }))
+    Array.from({ length: loc.courts }, (_, i) => {
+      const name = loc.courtNames?.[i]?.trim();
+      return {
+        courtName: `${loc.name} ${name || i + 1}`,
+        label: name || `Court ${i + 1}`,
+        location: loc.name,
+      };
+    })
   );
+}
+
+// --- Timeslot helpers (mirroring the backend's constraints.py) ---
+
+// "HH:MM" -> minutes since midnight (0 if not a valid time).
+export function toMinutes(hhmm: string): number {
+  const [h, m] = (hhmm ?? '').split(':').map(Number);
+  return Number.isNaN(h) || Number.isNaN(m) ? 0 : h * 60 + m;
+}
+
+// Two timeslots overlap when they're on the same day and their times overlap.
+export function slotsOverlap(a: Timeslot, b: Timeslot): boolean {
+  return a.day === b.day && toMinutes(a.start) < toMinutes(b.finish) && toMinutes(b.start) < toMinutes(a.finish);
+}
+
+// Whether a timeslot runs on a court: limited by court name (court-specific timeslots) or
+// by location (location_bitmask, indexed like locationNames). Unlimited runs everywhere.
+export function slotRunsOn(slot: Timeslot, court: Court, locationNames: string[]): boolean {
+  if (slot.courts?.length) return slot.courts.includes(court.courtName);
+  const bit = slot.location_bitmask?.[locationNames.indexOf(court.location)];
+  return bit === undefined || bit === 1;
+}
+
+const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+// Day names in weekday order, Monday first ("Tue", "Tuesday" and "tuesday" all count).
+// Names that aren't weekdays come after, in the order given.
+export function sortDays(days: string[]): string[] {
+  const rank = (day: string) => {
+    const i = WEEKDAYS.indexOf(day.trim().slice(0, 3).toLowerCase());
+    return i === -1 ? WEEKDAYS.length : i;
+  };
+  return [...days].sort((a, b) => rank(a) - rank(b));
 }

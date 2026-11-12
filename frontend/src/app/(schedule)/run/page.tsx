@@ -5,12 +5,12 @@ import {
   Pencil, X, ShieldCheck, RotateCcw, Save, BarChart2,
 } from 'lucide-react';
 import { verifySchedule } from '@/lib/api';
-import { ScheduleData, ScheduleEntry, ScheduleSettings, VerifyResult, expandLocations, Court } from '@/lib/types';
+import { ScheduleEntry, VerifyResult, expandLocations, Court } from '@/lib/types';
 import ScheduleGrid from '@/components/ScheduleGrid';
 import ScoreBreakdownPanel from '@/components/ScoreBreakdownPanel';
 import { useSchedule } from '@/components/ScheduleProvider';
 import { computeScoreBreakdown } from '@/lib/scoreBreakdown';
-import { REWARDS, applySettings, rankedRewards } from '@/lib/settings';
+import { REWARDS, applySettings, courtNameProblems, timeslotClashes } from '@/lib/settings';
 
 // Overlay the optimality gap onto a verify result using the solver's best_bound,
 // which the client already holds. Keeps Verify independent of any server-side
@@ -115,11 +115,6 @@ export default function RunPage() {
     }
   }
 
-  const courts = useMemo<Court[]>(
-    () => expandLocations(data?.locations ?? []),
-    [data?.locations],
-  );
-
   const status    = jobStatus?.status;
   const isModified = useMemo(
     () => editMode && JSON.stringify(editableSchedule) !== JSON.stringify(jobStatus?.result ?? []),
@@ -155,6 +150,7 @@ export default function RunPage() {
   );
   // Score the data as the solver saw it (e.g. one gender when teams aren't gendered).
   const solverData = useMemo(() => data && applySettings(data, runSettings), [data, runSettings]);
+  const courts = useMemo<Court[]>(() => expandLocations(solverData?.locations ?? []), [solverData]);
   const breakdown = useMemo(
     () => (!showBreakdown || !solverData || breakdownSchedule.length === 0)
       ? null
@@ -166,6 +162,9 @@ export default function RunPage() {
   const unassignedGroups = settings.assignTrainers && data
     ? data.groups.filter(g => !data.trainers.some(t => t.trainingGroups?.includes(g.name))).map(g => g.name)
     : [];
+  // Court names must be complete and unique before running (see courtNameProblems).
+  const courtProblems = data ? courtNameProblems(data, settings) : [];
+  const slotClashes = data ? timeslotClashes(data, settings) : [];
   const stats     = jobStatus?.stats;
   const result    = jobStatus?.result ?? [];
   const hasResult = result.length > 0;
@@ -193,6 +192,16 @@ export default function RunPage() {
           {!data && (
             <p className="mt-1 text-base text-amber-600">No data yet. Add it on the Data tab.</p>
           )}
+          {slotClashes.length > 0 && (
+            <p className="mt-1 text-base text-amber-600">
+              Timeslots to fix on the Data tab: {slotClashes.join('; ')}.
+            </p>
+          )}
+          {courtProblems.length > 0 && (
+            <p className="mt-1 text-base text-amber-600">
+              Court names to fix on the Data tab: {courtProblems.join('; ')}.
+            </p>
+          )}
           {unassignedGroups.length > 0 && (
             <p className="mt-1 text-base text-amber-600">
               No trainer assigned to: {unassignedGroups.join(', ')}. Choose them as Training Groups on the Data tab.
@@ -204,7 +213,7 @@ export default function RunPage() {
             <>
               <button
                 onClick={handleRun}
-                disabled={!data || running || unassignedGroups.length > 0}
+                disabled={!data || running || unassignedGroups.length > 0 || courtProblems.length > 0 || slotClashes.length > 0}
                 className="flex items-center gap-2 rounded-md bg-blue-600 px-5 py-2.5 text-base font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
               >
                 {running ? <Loader2 size={17} className="animate-spin" /> : <Play size={17} />}
@@ -343,9 +352,6 @@ export default function RunPage() {
               </button>
             )}
           </div>
-          {hierarchical && !running && stats?.reward_counts && (
-            <RewardResults counts={stats.reward_counts} settings={runSettings} data={data} />
-          )}
           {stats?.issues && stats.issues.length > 0 && (
             <div className="mt-4 rounded-md border border-red-100 bg-red-50 p-4">
               <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-red-700">Likely causes</div>
@@ -397,9 +403,6 @@ export default function RunPage() {
               </button>
             )}
           </div>
-          {hierarchical && verifyResult.feasible && verifyResult.reward_counts && (
-            <RewardResults counts={verifyResult.reward_counts} settings={runSettings} data={data} />
-          )}
           {!verifyResult.feasible && verifyResult.violations.length > 0 && (
             <div className="mt-4">
               <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-red-700">Violations</div>
@@ -435,6 +438,7 @@ export default function RunPage() {
             adjGroupSameDayCount={breakdown?.adjGroupSameDayCount ?? 0}
             adjGroupB2bPenaltyCount={breakdown?.adjGroupB2bPenaltyCount ?? 0}
             adjGroupB2bPenaltyTrainers={breakdown?.adjGroupB2bPenaltyTrainers ?? []}
+            trainerCount={breakdown?.trainerCount ?? 0}
             settings={runSettings}
             data={solverData}
           />
@@ -444,7 +448,7 @@ export default function RunPage() {
       {/* Schedule grid */}
       {(hasResult || (editMode && editableSchedule.length > 0)) && data && (
         <ScheduleGrid
-          timeslots={data.timeslots}
+          timeslots={solverData!.timeslots /* with the settings applied, e.g. court-specific times */}
           courts={courts}
           result={result}
           groups={runSettings.genderedTeams ? data.groups : undefined /* no gender colours */}
@@ -460,33 +464,6 @@ export default function RunPage() {
       {!hasResult && jobStatus && !running && (
         <p className="text-base text-gray-500">No schedule produced.</p>
       )}
-    </div>
-  );
-}
-
-// Hierarchical mode: how often each reward was achieved, in priority order.
-function RewardResults({ counts, settings, data }: {
-  counts: Record<string, number>;
-  settings: ScheduleSettings;
-  data: ScheduleData | null;
-}) {
-  return (
-    <div className="mt-4">
-      <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">Results by priority</div>
-      <ol className="space-y-1 text-base">
-        {rankedRewards(settings, data).map((reward, i) => {
-          const def = REWARDS.find(r => r.key === reward.key)!;
-          return (
-            <li key={reward.key} className="flex gap-3">
-              <span className="w-6 text-right font-semibold text-gray-400">{i + 1}.</span>
-              <span className="text-gray-700">{def.label}</span>
-              <span className="font-medium text-gray-900">
-                {counts[reward.key] ?? 0} {def.isPenalty ? 'incurred' : 'achieved'}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
     </div>
   );
 }

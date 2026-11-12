@@ -3,7 +3,7 @@ import itertools
 # Every reward the solver supports. The points for each come with every request (from
 # the schedule's Scheduler Settings); a penalty's points count against the schedule.
 REWARD_KEYS = (
-    'REWARD_B2B', 'REWARD_NO_TRAVEL', 'REWARD_NET_HEIGHT',
+    'REWARD_SAME_DAY', 'PENALTY_WAIT_TIME', 'REWARD_NO_TRAVEL', 'REWARD_NET_HEIGHT',
     'REWARD_ADJ_GROUP_B2B', 'REWARD_ADJ_GROUP_SAME_DAY', 'PENALTY_ADJ_BLOCKED',
 )
 
@@ -16,9 +16,10 @@ def apply_constraints(model, x, data):
     """
     Applies Hard and Soft constraints to the CP-SAT model.
 
-    Returns each reward's indicator variables: {reward key: [BoolVar, ...]}, where each
-    variable is 1 exactly when that reward is achieved once (or, for a penalty, incurred
-    once). The solver builds its objective from these (see solver.py).
+    Returns each reward's terms: {reward key: [var, ...]}. Each term is a BoolVar that is
+    1 exactly when the reward is achieved once (or a penalty incurred once), except Wait
+    Time, whose terms are minutes waited. A reward's total is the sum of its terms; the
+    solver builds its objective from these (see solver.py).
     """
     num_g = len(data['indices']['g'])
     num_t = len(data['indices']['t'])
@@ -27,39 +28,54 @@ def apply_constraints(model, x, data):
 
     court_venue    = data.get('court_venue', {})
     travel_minutes = data.get('travel_minutes', {})
+    raw_timeslots  = data['raw']['timeslots']
+    # Different slots whose times overlap (e.g. 16:30–18:00 and 17:00–18:30): rules 2, 3
+    # and 5 apply across them as well as within a single slot.
+    clashes = clashing_slot_pairs(raw_timeslots)
 
     # 1. Group Coverage: each group gets exactly one session
     for g in range(num_g):
         group_vars = [x[g, t, c, s] for t in range(num_t) for c in range(num_c) for s in range(num_s) if (g, t, c, s) in x]
         model.AddExactlyOne(group_vars)
 
-    # 2. Court Conflict: at most one group per court/slot
+    # 2. Court Conflict: at most one group per court at any time
     for c in range(num_c):
         for s in range(num_s):
             model.AddAtMostOne(x[g, t, c, s] for g in range(num_g) for t in range(num_t) if (g, t, c, s) in x)
+        for s1, s2 in clashes:
+            model.AddAtMostOne(x[g, t, c, s] for g in range(num_g) for t in range(num_t) for s in (s1, s2) if (g, t, c, s) in x)
 
-    # 3. Trainer Conflict: at most one group per trainer/slot
+    # 3. Trainer Conflict: a trainer coaches at most one group at any time
     for t in range(num_t):
         for s in range(num_s):
             model.AddAtMostOne(x[g, t, c, s] for g in range(num_g) for c in range(num_c) if (g, t, c, s) in x)
+        for s1, s2 in clashes:
+            model.AddAtMostOne(x[g, t, c, s] for g in range(num_g) for c in range(num_c) for s in (s1, s2) if (g, t, c, s) in x)
 
     # 4. Trainer Capacity: total groups coached ≤ trainer's capacity
     for t in range(num_t):
         model.Add(sum(x[g, t, c, s] for g in range(num_g) for c in range(num_c) for s in range(num_s) if (g, t, c, s) in x) <= data['capacity'][t])
 
-    # 5. Trainer Playing vs Coaching Conflict
+    # 5. Trainer Playing vs Coaching Conflict: never coaching while their own group plays
     for t_id, t_idx in data['indices']['t'].items():
         playing_groups = [g_idx for g_idx, m_ids in data['members'].items() if t_id in m_ids]
+
+        def is_coaching(s):
+            return sum(x[g, t_idx, c, s] for g in range(num_g) for c in range(num_c) if (g, t_idx, c, s) in x)
+
+        def is_playing(s):
+            return sum(x[gp, ot, oc, s] for gp in playing_groups for ot in range(num_t) for oc in range(num_c) if (gp, ot, oc, s) in x)
+
         for s in range(num_s):
-            is_coaching = sum(x[g, t_idx, c, s] for g in range(num_g) for c in range(num_c) if (g, t_idx, c, s) in x)
-            is_playing  = sum(x[gp, ot, oc, s] for gp in playing_groups for ot in range(num_t) for oc in range(num_c) if (gp, ot, oc, s) in x)
-            model.Add(is_coaching + is_playing <= 1)
+            model.Add(is_coaching(s) + is_playing(s) <= 1)
+        for s1, s2 in clashes:
+            model.Add(is_coaching(s1) + is_playing(s2) <= 1)
+            model.Add(is_playing(s1) + is_coaching(s2) <= 1)
 
     # 6. Trainer Travel Time: cannot be at venue V1 at slot S1 and venue V2 at slot S2
     #    if the gap between S1.finish and S2.start is less than travel_time(V1, V2).
     if travel_minutes:
-        raw_timeslots = data['raw']['timeslots']
-        slots_by_day  = _group_slots_by_day(data)
+        slots_by_day = group_slots_by_day(raw_timeslots)
 
         # Deduplicate venue pairs — travel_minutes stores both (A,B) and (B,A)
         seen = set()
@@ -114,32 +130,46 @@ def apply_constraints(model, x, data):
 
     # --- SOFT CONSTRAINTS (REWARDS) ---
     rewards = {key: [] for key in REWARD_KEYS}
-    slots_by_day = _group_slots_by_day(data)
+    slots_by_day = group_slots_by_day(raw_timeslots)
+    consecutive  = consecutive_slot_pairs(raw_timeslots)
 
-    # 7. Back-to-Back reward: a player-trainer coaches right before or after their own
-    #    group's session (coach→play and play→coach are both rewarded).
+    # 7. Same Day reward and Wait Time penalty, per trainer, over all their activities
+    #    (coaching, and playing in their own group).
+    #    - Same Day: one per trainer whose activities aren't spread over 2+ days. Trainers
+    #      with 0 or 1 activities count too, so the reward never favours giving anyone more
+    #      or fewer sessions.
+    #    - Wait Time: per trainer per day, the minutes from their first start to their last
+    #      finish that aren't spent in a session.
     for t_id, t_idx in data['indices']['t'].items():
         playing_groups = [g_idx for g_idx, m_ids in data['members'].items() if t_id in m_ids]
-        if not playing_groups:
-            continue
 
-        coaching = {
-            s: _any_true(model, [x[g, t_idx, c, s] for g in range(num_g) for c in range(num_c) if (g, t_idx, c, s) in x],
-                         f't{t_idx}_coach_s{s}')
-            for s in range(num_s)
-        }
-        playing = {
-            s: _any_true(model, [x[gp, ot, oc, s] for gp in playing_groups for ot in range(num_t) for oc in range(num_c) if (gp, ot, oc, s) in x],
-                         f't{t_idx}_play_s{s}')
-            for s in range(num_s)
-        }
+        # active[s]: the trainer coaches or plays in slot s (never both, see rules 3 and 5).
+        active = {}
+        for s in range(num_s):
+            vars_ = (
+                [x[g, t_idx, c, s] for g in range(num_g) for c in range(num_c) if (g, t_idx, c, s) in x] +
+                [x[gp, ot, oc, s] for gp in playing_groups for ot in range(num_t) for oc in range(num_c) if (gp, ot, oc, s) in x]
+            )
+            if vars_:
+                active[s] = _any_true(model, vars_, f't{t_idx}_active_s{s}')
 
-        for day_slots in slots_by_day.values():
-            for s, next_s in zip(day_slots, day_slots[1:]):
-                for name, first, second in (('cp', coaching[s], playing[next_s]), ('pc', playing[s], coaching[next_s])):
-                    b2b = model.NewBoolVar(f'b2b_{name}_t{t_idx}_s{s}')
-                    model.AddMultiplicationEquality(b2b, [first, second])
-                    rewards['REWARD_B2B'].append(b2b)
+        days_active = []
+        for day, day_slots in slots_by_day.items():
+            day_slots = [s for s in day_slots if s in active]
+            if not day_slots:
+                continue
+            days_active.append(_any_true(model, [active[s] for s in day_slots], f't{t_idx}_on_{day}'))
+            if len(day_slots) >= 2:
+                rewards['PENALTY_WAIT_TIME'].append(
+                    _wait_minutes(model, active, day_slots, raw_timeslots, f't{t_idx}_{day}'))
+
+        if len(days_active) <= 1:
+            rewards['REWARD_SAME_DAY'].append(model.NewConstant(1))  # can only ever be on one day
+        else:
+            single_day = model.NewBoolVar(f't{t_idx}_single_day')
+            model.Add(sum(days_active) <= 1).OnlyEnforceIf(single_day)
+            model.Add(sum(days_active) >= 2).OnlyEnforceIf(single_day.Not())
+            rewards['REWARD_SAME_DAY'].append(single_day)
 
     # No Net Height Change reward: +1 when same gender plays on same court in adjacent slots
     raw_groups = data['raw']['groups']
@@ -149,26 +179,22 @@ def apply_constraints(model, x, data):
         if str(g.get('gender', '')).strip().lower() in ('female', 'male')
     }
     for c in range(num_c):
-        for day, day_slots in slots_by_day.items():
-            for i in range(len(day_slots) - 1):
-                s      = day_slots[i]
-                next_s = day_slots[i + 1]
+        for s, next_s in consecutive:
+            for gender in ('female', 'male'):
+                gender_gi = [gi for gi, gen in group_gender.items() if gen == gender]
 
-                for gender in ('female', 'male'):
-                    gender_gi = [gi for gi, gen in group_gender.items() if gen == gender]
+                vars_at_s    = [x[g, t, c, s]      for g in gender_gi for t in range(num_t) if (g, t, c, s)      in x]
+                vars_at_next = [x[g, t, c, next_s] for g in gender_gi for t in range(num_t) if (g, t, c, next_s) in x]
 
-                    vars_at_s    = [x[g, t, c, s]      for g in gender_gi for t in range(num_t) if (g, t, c, s)      in x]
-                    vars_at_next = [x[g, t, c, next_s] for g in gender_gi for t in range(num_t) if (g, t, c, next_s) in x]
+                if not vars_at_s or not vars_at_next:
+                    continue
 
-                    if not vars_at_s or not vars_at_next:
-                        continue
+                has_s    = _any_true(model, vars_at_s,    f'{gender}_c{c}_s{s}_to_{next_s}')
+                has_next = _any_true(model, vars_at_next, f'{gender}_c{c}_s{next_s}_from_{s}')
 
-                    has_s    = _any_true(model, vars_at_s,    f'{gender}_c{c}_s{s}')
-                    has_next = _any_true(model, vars_at_next, f'{gender}_c{c}_s{next_s}_from_{s}')
-
-                    consec = model.NewBoolVar(f'{gender}_consec_c{c}_s{s}')
-                    model.AddMultiplicationEquality(consec, [has_s, has_next])
-                    rewards['REWARD_NET_HEIGHT'].append(consec)
+                consec = model.NewBoolVar(f'{gender}_consec_c{c}_s{s}_{next_s}')
+                model.AddMultiplicationEquality(consec, [has_s, has_next])
+                rewards['REWARD_NET_HEIGHT'].append(consec)
 
     # No Travel reward: +10000 per trainer per day where all activities are at the same venue.
     # Only applies when the trainer has possible activities in 2+ distinct slots on that day
@@ -281,18 +307,16 @@ def apply_constraints(model, x, data):
 
         # Back-to-back reward + blocked penalty
         for gi, gj in adj_pairs:
-            for day, day_slots in slots_by_day.items():
-                for i in range(len(day_slots) - 1):
-                    s1, s2 = day_slots[i], day_slots[i + 1]
-                    for vi, (venue, cv) in enumerate(adj_courts_by_venue.items()):
-                        for a, b in [(gi, gj), (gj, gi)]:
-                            va = _group_at_venue_slot(a, vi, cv, s1)
-                            vb = _group_at_venue_slot(b, vi, cv, s2)
-                            if va is None or vb is None:
-                                continue
-                            adj_b2b = model.NewBoolVar(f'adj_{a}_{b}_{vi}_{s1}_{s2}')
-                            model.AddMultiplicationEquality(adj_b2b, [va, vb])
-                            rewards['REWARD_ADJ_GROUP_B2B'].append(adj_b2b)
+            for s1, s2 in consecutive:
+                for vi, (venue, cv) in enumerate(adj_courts_by_venue.items()):
+                    for a, b in [(gi, gj), (gj, gi)]:
+                        va = _group_at_venue_slot(a, vi, cv, s1)
+                        vb = _group_at_venue_slot(b, vi, cv, s2)
+                        if va is None or vb is None:
+                            continue
+                        adj_b2b = model.NewBoolVar(f'adj_{a}_{b}_{vi}_{s1}_{s2}')
+                        model.AddMultiplicationEquality(adj_b2b, [va, vb])
+                        rewards['REWARD_ADJ_GROUP_B2B'].append(adj_b2b)
 
         # Same-day adjacent reward (additive with B2B) — only when at different slots
         for gi, gj in adj_pairs:
@@ -323,8 +347,13 @@ def apply_constraints(model, x, data):
                     else:
                         rewards['REWARD_ADJ_GROUP_SAME_DAY'].append(same_day)
 
-        # Trainer Cannot Sub penalty: fires whenever a lower-level group's trainer coaches
-        # at the same slot a higher-level group is playing, independent of B2B.
+        # Trainer Cannot Sub penalty: fires for each slot where a lower-level group's trainer
+        # coaches while the higher-level group is playing (in that slot or an overlapping one),
+        # independent of B2B.
+        same_time = {s: {s} for s in range(num_s)}
+        for s1, s2 in clashes:
+            same_time[s1].add(s2)
+            same_time[s2].add(s1)
         higher_at_slot_cache: dict = {}
         for gi, gj in adj_pairs:
             if group_level.get(gi, 0) < group_level.get(gj, 0):
@@ -339,7 +368,7 @@ def apply_constraints(model, x, data):
                         continue
 
                     if (higher_group, s) not in higher_at_slot_cache:
-                        higher_vars = [x[higher_group, t, c, s] for t in range(num_t) for c in range(num_c) if (higher_group, t, c, s) in x]
+                        higher_vars = [x[higher_group, t, c, s2] for t in range(num_t) for c in range(num_c) for s2 in same_time[s] if (higher_group, t, c, s2) in x]
                         higher_at_slot_cache[(higher_group, s)] = (
                             _any_true(model, higher_vars, f'g_any_{higher_group}_s{s}')
                             if higher_vars else None
@@ -356,15 +385,71 @@ def apply_constraints(model, x, data):
     return rewards
 
 
-def _group_slots_by_day(data):
-    """Groups slot indices by their calendar day."""
-    slots = {}
-    for i, s in enumerate(data['raw']['timeslots']):
-        d = s['day']
-        if d not in slots:
-            slots[d] = []
-        slots[d].append(i)
-    return slots
+# --- Timeslot helpers (shared with verify.py) ---
+# Slots are compared by their actual times, so timeslots can overlap (e.g. an extra
+# court from 17:00–18:30 alongside 16:30–18:00) and can be entered in any order.
+
+def slot_allows_court(slot: dict, court: dict, location_to_idx: dict) -> bool:
+    """Whether a timeslot runs on a court. A slot can be limited to certain locations
+    (location_bitmask) or, with court-specific timeslots, to certain courts by name
+    (courts). Empty means no limit."""
+    allowed_courts = slot.get('courts') or []
+    if allowed_courts and court.get('courtName') not in allowed_courts:
+        return False
+    loc_idx = location_to_idx.get(court.get('location', ''))
+    ts_loc = slot.get('location_bitmask') or []
+    return not (loc_idx is not None and loc_idx < len(ts_loc) and ts_loc[loc_idx] == 0)
+
+
+def group_slots_by_day(timeslots: list) -> dict:
+    """Slot indices grouped by day, each day's slots ordered by start time."""
+    days: dict = {}
+    for i, slot in enumerate(timeslots):
+        days.setdefault(slot['day'], []).append(i)
+    for day_slots in days.values():
+        day_slots.sort(key=lambda i: _parse_hhmm(timeslots[i]['start']))
+    return days
+
+
+def _overlap(a: dict, b: dict) -> bool:
+    return (a['day'] == b['day']
+            and _parse_hhmm(a['start']) < _parse_hhmm(b['finish'])
+            and _parse_hhmm(b['start']) < _parse_hhmm(a['finish']))
+
+
+def clashing_slot_pairs(timeslots: list) -> list:
+    """Pairs of different slots (s1 < s2) whose times overlap on the same day.
+    No trainer or court can be in both."""
+    return [(s1, s2) for s1, s2 in itertools.combinations(range(len(timeslots)), 2)
+            if _overlap(timeslots[s1], timeslots[s2])]
+
+
+def consecutive_slot_pairs(timeslots: list) -> list:
+    """(slot, next slot) pairs: next by start time on the same day, and not overlapping."""
+    return [(s, nxt)
+            for day_slots in group_slots_by_day(timeslots).values()
+            for s, nxt in zip(day_slots, day_slots[1:])
+            if not _overlap(timeslots[s], timeslots[nxt])]
+
+
+def _wait_minutes(model, active, day_slots, timeslots, name):
+    """Minutes a trainer waits on one day: from their first start to their last finish,
+    minus the time spent in sessions (0 with fewer than two sessions)."""
+    day_end = 24 * 60
+    start  = {s: _parse_hhmm(timeslots[s]['start'])  for s in day_slots}
+    finish = {s: _parse_hhmm(timeslots[s]['finish']) for s in day_slots}
+
+    # Earliest start and latest finish among the slots the trainer is active in.
+    first = model.NewIntVar(0, day_end, f'{name}_first')
+    model.AddMinEquality(first, [start[s] * active[s] + day_end * (1 - active[s]) for s in day_slots])
+    last = model.NewIntVar(0, day_end, f'{name}_last')
+    model.AddMaxEquality(last, [finish[s] * active[s] for s in day_slots])
+
+    span_minus_busy = model.NewIntVar(-day_end, day_end, f'{name}_gap')
+    model.Add(span_minus_busy == last - first - sum((finish[s] - start[s]) * active[s] for s in day_slots))
+    wait = model.NewIntVar(0, day_end, f'{name}_wait')
+    model.AddMaxEquality(wait, [span_minus_busy, 0])
+    return wait
 
 
 def _any_true(model, bool_vars, name):

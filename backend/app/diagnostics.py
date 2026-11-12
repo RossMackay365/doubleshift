@@ -1,4 +1,5 @@
 from collections import defaultdict
+from .constraints import slot_allows_court
 
 
 def diagnose_infeasibility(data: dict) -> list[str]:
@@ -106,10 +107,8 @@ def diagnose_infeasibility(data: dict) -> list[str]:
                     for si in g_slots:
                         if not t_avail[ti][si]:
                             continue
-                        if loc_idx is not None:
-                            ts_loc = timeslots[si].get("location_bitmask", [])
-                            if ts_loc and loc_idx < len(ts_loc) and ts_loc[loc_idx] == 0:
-                                continue
+                        if not slot_allows_court(timeslots[si], courts[ci], location_to_idx):
+                            continue
                         valid_combo = True
                         break
             if not valid_combo:
@@ -169,12 +168,7 @@ def diagnose_infeasibility(data: dict) -> list[str]:
     # exist on that day), so there aren't enough court-slots to fit them all.
 
     def _slot_court_ok(si, ci):
-        venue   = court_venue.get(ci, '')
-        loc_idx = location_to_idx.get(venue)
-        if loc_idx is None:
-            return True
-        ts_loc = timeslots[si].get('location_bitmask', [])
-        return not (ts_loc and loc_idx < len(ts_loc) and ts_loc[loc_idx] == 0)
+        return slot_allows_court(timeslots[si], courts[ci], location_to_idx)
 
     def _group_valid_on_slot(gi, si):
         member_set = set(members.get(gi, []))

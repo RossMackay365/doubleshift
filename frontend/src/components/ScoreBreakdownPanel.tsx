@@ -24,6 +24,7 @@ export default function ScoreBreakdownPanel({
   adjGroupSameDayCount,
   adjGroupB2bPenaltyCount,
   adjGroupB2bPenaltyTrainers = [],
+  trainerCount,
   settings,
   data,
 }: {
@@ -38,10 +39,12 @@ export default function ScoreBreakdownPanel({
   adjGroupSameDayCount: number;
   adjGroupB2bPenaltyCount: number;
   adjGroupB2bPenaltyTrainers?: string[];
+  trainerCount: number;
   settings: ScheduleSettings;
   data: ScheduleData;
 }) {
-  const rB2b        = rewardPoints(settings, data, 'REWARD_B2B');
+  const rSameDay    = rewardPoints(settings, data, 'REWARD_SAME_DAY');
+  const rWait       = rewardPoints(settings, data, 'PENALTY_WAIT_TIME');
   const rNoTravel   = rewardPoints(settings, data, 'REWARD_NO_TRAVEL');
   const rNetHeight  = rewardPoints(settings, data, 'REWARD_NET_HEIGHT');
   const rAdjB2b     = rewardPoints(settings, data, 'REWARD_ADJ_GROUP_B2B');
@@ -54,30 +57,39 @@ export default function ScoreBreakdownPanel({
     );
   }
 
-  const players = items.filter(it => it.playingGroup !== '');
+  // Same Day counts every trainer; only those coaching can be spread over several days.
+  const spreadOut    = items.filter(it => it.days.length > 1);
+  const sameDayCount = trainerCount - spreadOut.length;
+  const sameDayScore = sameDayCount * rSameDay;
 
-  // Back-to-Back: player-trainers only.
-  const b2bWinners  = players.filter(it => it.b2bCount > 0);
-  const b2bMissed   = players.filter(it => it.b2bCount === 0);
-  const b2bScore    = items.reduce((s, it) => s + it.b2bCount * rB2b, 0);
+  const waiting     = items.filter(it => it.waitMinutes > 0);
+  const waitMinutes = items.reduce((sum, it) => sum + it.waitMinutes, 0);
+  const waitPenalty = waitMinutes * rWait;
 
   const adjSameDayScore = adjGroupSameDayCount * rAdjSameDay;
   const adjB2bScore     = adjGroupB2bCount * rAdjB2b;
   const adjPenaltyTotal = adjGroupB2bPenaltyCount * rPenBlocked;
 
   const netHeightScore = genderConsecCount * rNetHeight;
-  const grandTotal = b2bScore + noTravelDays * rNoTravel + netHeightScore + adjSameDayScore + adjB2bScore - adjPenaltyTotal;
+  const grandTotal = sameDayScore - waitPenalty + noTravelDays * rNoTravel + netHeightScore + adjSameDayScore + adjB2bScore - adjPenaltyTotal;
 
   return (
     <div className="text-sm divide-y divide-gray-100">
-      {rB2b > 0 && (
+      {rSameDay > 0 && (
         <RewardSection
-          label="Back-to-Back"
-          summary={
-            players.length > 0 ? `${b2bWinners.length} of ${players.length} trainers` : 'No trainers are players'
-          }
-          score={b2bScore}
-          missed={b2bMissed.map(it => ({ name: it.name, detail: `plays in ${it.playingGroup}` }))}
+          label="Same Day"
+          summary={`${sameDayCount} of ${trainerCount} trainers`}
+          score={sameDayScore}
+          missed={spreadOut.map(it => ({ name: it.name, detail: `on ${it.days.join(', ')}` }))}
+        />
+      )}
+
+      {rWait > 0 && (
+        <RewardSection
+          label="Minimise Wait Time"
+          summary={`${waitMinutes} min waiting in total`}
+          score={-waitPenalty}
+          missed={waiting.map(it => ({ name: it.name, detail: `waits ${it.waitMinutes} min` }))}
         />
       )}
 

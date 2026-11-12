@@ -1,4 +1,4 @@
-import { ScheduleData, ScheduleEntry, ScheduleSettings } from './types';
+import { ScheduleData, ScheduleEntry, ScheduleSettings, slotsOverlap, toMinutes } from './types';
 import { rewardPoints } from './settings';
 
 export interface TrainerBreakdownItem {
@@ -7,12 +7,14 @@ export interface TrainerBreakdownItem {
   coachingSlots: string[];
   playingGroup: string;
   playingSlots: string[];
-  b2bCount: number;
+  days: string[];       // days with any activity (Same Day is met with 0 or 1)
+  waitMinutes: number;  // minutes waited between sessions, summed over their days
   total: number;
 }
 
 export interface ScoreBreakdown {
   trainerItems: TrainerBreakdownItem[];
+  trainerCount: number;
   genderConsecCount: number;
   genderPossibleCount: number;
   noTravelDays: number;
@@ -25,18 +27,36 @@ export interface ScoreBreakdown {
   adjGroupB2bPenaltyTrainers: string[];
 }
 
+// Slots are compared by their actual times (toMinutes / slotsOverlap in types.ts, mirroring
+// the backend's constraints.py), so timeslots can be entered in any order and can overlap
+// on different courts.
 export function computeScoreBreakdown(
   schedule: ScheduleEntry[],
   data: ScheduleData,
   settings: ScheduleSettings,
 ): ScoreBreakdown {
   const { timeslots, trainers, groups, locations } = data;
-  const rB2b = rewardPoints(settings, data, 'REWARD_B2B');
+  const rSameDay = rewardPoints(settings, data, 'REWARD_SAME_DAY');
+  const rWait    = rewardPoints(settings, data, 'PENALTY_WAIT_TIME');
+  // Each day's slots, ordered by start time.
   const slotsByDay = new Map<string, number[]>();
   timeslots.forEach((ts, i) => {
     if (!slotsByDay.has(ts.day)) slotsByDay.set(ts.day, []);
     slotsByDay.get(ts.day)!.push(i);
   });
+  for (const daySlots of slotsByDay.values()) {
+    daySlots.sort((a, b) => toMinutes(timeslots[a].start) - toMinutes(timeslots[b].start));
+  }
+  // Consecutive = next by start time on the same day, and not overlapping.
+  const consecutive: [number, number][] = [...slotsByDay.values()].flatMap(daySlots =>
+    daySlots.slice(1)
+      .map((next, i): [number, number] => [daySlots[i], next])
+      .filter(([s, next]) => !slotsOverlap(timeslots[s], timeslots[next])),
+  );
+  // Each slot plus every slot overlapping it.
+  const sameTime = timeslots.map((ts, i) =>
+    timeslots.map((_, j) => j).filter(j => j === i || slotsOverlap(ts, timeslots[j])),
+  );
 
   const label = (i: number) =>
     timeslots[i] ? `${timeslots[i].day} ${timeslots[i].start}` : `slot ${i}`;
@@ -56,16 +76,17 @@ export function computeScoreBreakdown(
         : [];
       const pIndices = playingEntries.map(e => e.timeslot);
 
-      const cSet = new Set(cIndices);
-      const pSet = new Set(pIndices);
-
-      // Back-to-Back: coaching right before or after their own session (mirrors backend).
-      let b2bCount = 0;
-      for (const [, daySlots] of slotsByDay) {
-        for (let i = 0; i < daySlots.length - 1; i++) {
-          if (cSet.has(daySlots[i]) && pSet.has(daySlots[i + 1])) b2bCount++;
-          if (pSet.has(daySlots[i]) && cSet.has(daySlots[i + 1])) b2bCount++;
-        }
+      // Same Day and Wait Time, over all their activities (mirrors the backend).
+      const active = [...new Set([...cIndices, ...pIndices])];
+      const days = [...new Set(active.map(i => timeslots[i].day))];
+      let waitMinutes = 0;
+      for (const day of days) {
+        const daySlots = active.filter(i => timeslots[i].day === day);
+        if (daySlots.length < 2) continue;
+        const first = Math.min(...daySlots.map(i => toMinutes(timeslots[i].start)));
+        const last  = Math.max(...daySlots.map(i => toMinutes(timeslots[i].finish)));
+        const busy  = daySlots.reduce((sum, i) => sum + toMinutes(timeslots[i].finish) - toMinutes(timeslots[i].start), 0);
+        waitMinutes += Math.max(0, last - first - busy);
       }
 
       return {
@@ -74,8 +95,9 @@ export function computeScoreBreakdown(
         coachingSlots: cIndices.map(label),
         playingGroup: trainer.groupID ?? '',
         playingSlots: pIndices.map(label),
-        b2bCount,
-        total: b2bCount * rB2b,
+        days,
+        waitMinutes,
+        total: (days.length <= 1 ? rSameDay : 0) - waitMinutes * rWait,
       };
     })
     .filter((x): x is TrainerBreakdownItem => x !== null);
@@ -84,19 +106,15 @@ export function computeScoreBreakdown(
   // and total transitions where both slots have a group (the denominator).
   let genderConsecCount = 0;
   let genderPossibleCount = 0;
-  for (const [, daySlots] of slotsByDay) {
-    for (let i = 0; i < daySlots.length - 1; i++) {
-      const s     = daySlots[i];
-      const nextS = daySlots[i + 1];
-      const entriesAt = schedule.filter(e => e.timeslot === s);
-      for (const entry of entriesAt) {
-        const gender = groupGender.get(entry.group);
-        if (!gender) continue;
-        const nextEntry = schedule.find(e => e.timeslot === nextS && e.court === entry.court);
-        if (!nextEntry || !groupGender.get(nextEntry.group)) continue;
-        genderPossibleCount++;
-        if (groupGender.get(nextEntry.group) === gender) genderConsecCount++;
-      }
+  for (const [s, nextS] of consecutive) {
+    const entriesAt = schedule.filter(e => e.timeslot === s);
+    for (const entry of entriesAt) {
+      const gender = groupGender.get(entry.group);
+      if (!gender) continue;
+      const nextEntry = schedule.find(e => e.timeslot === nextS && e.court === entry.court);
+      if (!nextEntry || !groupGender.get(nextEntry.group)) continue;
+      genderPossibleCount++;
+      if (groupGender.get(nextEntry.group) === gender) genderConsecCount++;
     }
   }
 
@@ -184,47 +202,37 @@ export function computeScoreBreakdown(
       const sa = groupSchedule.get(ga.name);
       const sb = groupSchedule.get(gb.name);
       if (!sa || !sb) continue;
+
+      // Penalty: one per slot where a player-trainer from the lower-level group coaches
+      // while the higher-level group plays (in that slot or an overlapping one), on any
+      // day or venue (mirrors the backend). Level 1 is the highest.
+      const [higher, lowerName] = ga.level < gb.level ? [sa, gb.name] : [sb, ga.name];
+      const lowerMembers = trainers.filter(t => t.groupID === lowerName).map(t => t.name);
+      for (const slot of sameTime[higher.slotIdx] ?? []) {
+        const blocked = (coachingAtSlot.get(slot) ?? []).filter(name => lowerMembers.includes(name));
+        if (blocked.length > 0) {
+          adjGroupB2bPenaltyCount++;
+          blocked.forEach(name => penaltyTrainersSet.add(name));
+        }
+      }
+
+      // Same day (and same venue, when there are several), in different slots.
       if (multiLocation && sa.venue !== sb.venue) continue;
       const dayA = timeslots[sa.slotIdx]?.day;
       const dayB = timeslots[sb.slotIdx]?.day;
       if (!dayA || dayA !== dayB) continue;
       if (sa.slotIdx === sb.slotIdx) continue;
-      // Same day + same venue (different slots)
       adjGroupSameDayCount++;
-      const daySlots = slotsByDay.get(dayA) ?? [];
-      const idxA = daySlots.indexOf(sa.slotIdx);
-      const idxB = daySlots.indexOf(sb.slotIdx);
-      if (Math.abs(idxA - idxB) === 1) {
+      if (consecutive.some(([s, next]) =>
+        (s === sa.slotIdx && next === sb.slotIdx) || (s === sb.slotIdx && next === sa.slotIdx))) {
         adjGroupB2bCount++;
-      }
-      // Penalty: lower-level group's trainer coaching when higher-level group plays,
-      // independent of B2B.
-      if (ga.level < gb.level) {
-        // ga is higher tier; check if gb's trainer coaches when ga plays
-        const blockedNames = trainers
-          .filter(t => t.groupID === gb.name)
-          .map(t => t.name)
-          .filter(name => (coachingAtSlot.get(sa.slotIdx) ?? []).includes(name));
-        if (blockedNames.length > 0) {
-          adjGroupB2bPenaltyCount++;
-          blockedNames.forEach(name => penaltyTrainersSet.add(name));
-        }
-      } else {
-        // gb is higher tier; check if ga's trainer coaches when gb plays
-        const blockedNames = trainers
-          .filter(t => t.groupID === ga.name)
-          .map(t => t.name)
-          .filter(name => (coachingAtSlot.get(sb.slotIdx) ?? []).includes(name));
-        if (blockedNames.length > 0) {
-          adjGroupB2bPenaltyCount++;
-          blockedNames.forEach(name => penaltyTrainersSet.add(name));
-        }
       }
     }
   }
 
   return {
     trainerItems,
+    trainerCount: trainers.length,
     genderConsecCount,
     genderPossibleCount,
     noTravelDays,

@@ -53,9 +53,11 @@ class Timeslot(BaseModel):
     start: str
     finish: str
     location_bitmask: list[int] = []
+    # Court-specific timeslots: the names of the courts this slot runs on (empty = all).
+    courts: list[str] = []
 
 
-class OptimizeRequest(BaseModel):
+class SolveRequest(BaseModel):
     groups:         list[Group]
     trainers:       list[Trainer]
     courts:         list[Court]
@@ -107,3 +109,19 @@ class VerifyResponse(BaseModel):
     gap_percent:  Optional[float] = None
     violations:   List[str] = []
     reward_counts: Optional[Dict[str, int]] = None
+
+
+# --- Saved schedules (.doubleshift files) ---
+class ScheduleCreate(BaseModel):
+    name: str
+
+
+class ScheduleContents(BaseModel):
+    data: Any = None
+    settings: Any = None
+    last_run: Any = None
+
+
+class ScheduleImport(BaseModel):
+    name: str
+    file: Any  # the parsed contents of the .doubleshift file

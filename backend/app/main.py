@@ -1,13 +1,14 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uuid
-from .schemas import OptimizeRequest, JobStatusResponse, VerifyRequest, VerifyResponse
+from .schemas import (
+    SolveRequest, JobStatusResponse, VerifyRequest, VerifyResponse,
+    ScheduleCreate, ScheduleContents, ScheduleImport,
+)
 from .state import get_job, update_job, get_process
-from .solver import run_optimization_task
+from .solver import run_solve_task
 from .verify import verify_schedule
 from . import schedules
-from pydantic import BaseModel
-from typing import Any
 import logging
 
 logging.basicConfig(
@@ -28,8 +29,8 @@ app.add_middleware(
 )
 
 
-@app.post("/api/optimize", status_code=202)
-async def optimize(request: OptimizeRequest, background_tasks: BackgroundTasks):
+@app.post("/api/solve", status_code=202)
+async def solve(request: SolveRequest, background_tasks: BackgroundTasks):
     job_id = str(uuid.uuid4())
     update_job(job_id, status="pending")
 
@@ -47,9 +48,9 @@ async def optimize(request: OptimizeRequest, background_tasks: BackgroundTasks):
         "reward_order":      request.reward_order,
     }
 
-    background_tasks.add_task(run_optimization_task, job_id, raw_data)
+    background_tasks.add_task(run_solve_task, job_id, raw_data)
 
-    return {"job_id": job_id, "message": "Optimization task started"}
+    return {"job_id": job_id, "message": "Solve started"}
 
 
 @app.post("/api/cancel/{job_id}")
@@ -106,23 +107,7 @@ async def verify(request: VerifyRequest):
 
 
 # --- Saved schedules (.doubleshift files) ---
-# A schedule is identified by its file path. data, settings and last_run are
-# stored exactly as the frontend sends them.
-
-class ScheduleCreate(BaseModel):
-    name: str
-
-
-class ScheduleContents(BaseModel):
-    data: Any = None
-    settings: Any = None
-    last_run: Any = None
-
-
-class ScheduleImport(BaseModel):
-    name: str
-    file: Any  # the parsed contents of the .doubleshift file
-
+# A schedule is identified by its file path.
 
 @app.get("/api/schedules")
 def list_schedules():

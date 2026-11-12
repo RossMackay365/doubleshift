@@ -48,11 +48,11 @@ API docs are available at http://localhost:8000/docs once running.
 | `DOUBLESHIFT_DATA_DIR` | No | per-user app data folder | Where the recently opened list is kept |
 | `SOLVER_WORKERS` | No | `0` (all cores) | CP-SAT worker threads |
 
-The solver time limit comes from each schedule's Scheduler Settings (`max_solve_seconds` in the optimize request, 10–3600, default 120).
+The solver time limit comes from each schedule's Scheduler Settings (`max_solve_seconds` in the solve request, 10–3600, default 120).
 
 ## API Reference
 
-### `POST /api/optimize` → 202
+### `POST /api/solve` → 202
 Starts a background solve job. Returns `{ "job_id": "..." }`.
 
 Request body: groups, trainers, courts, timeslots, optional travel times and reward config overrides.
@@ -91,11 +91,15 @@ One boolean variable per `(group, trainer, court, timeslot)` combination. Variab
 ### Hard Constraints (`constraints.py`)
 
 1. Each group assigned to exactly one session
-2. At most one group per court per timeslot
-3. At most one group per trainer per timeslot
+2. At most one group per court at any time
+3. A trainer coaches at most one group at any time
 4. Total coaching assignments ≤ trainer capacity
-5. A trainer cannot coach and play in the same timeslot
+5. A trainer cannot coach while their own group is playing
 6. A trainer cannot be at venue A at slot S1 and venue B at slot S2 if the gap between S1.finish and S2.start is less than the defined travel time
+
+"At any time" compares actual times, not just slot numbers: timeslots on the same day whose times overlap (e.g. 16:30–18:00 and 17:00–18:30) clash, so rules 2, 3 and 5 apply across them too. Likewise, "consecutive" slots (used by the Adjacent Groups Back-to-Back and Net Height rewards) are the next slot by start time on the same day, provided the two don't overlap. Timeslots can be entered in any order. A timeslot can also be limited to certain courts by name (`courts`, for court-specific timeslots) as well as to locations (`location_bitmask`); `slot_allows_court` checks both.
+
+**Same Day** and **Minimise Wait Time** look at all of a trainer's activities (coaching, and playing in their own group). Same Day counts every trainer whose activities fall on at most one day. Wait Time is, per trainer per day, the minutes from their first start to their last finish not spent in a session; its terms are integer minutes rather than 0/1, computed exactly with `AddMinEquality`/`AddMaxEquality`. The helpers for this (`group_slots_by_day`, `clashing_slot_pairs`, `consecutive_slot_pairs`) live in `constraints.py` and are shared with `verify.py`; `lib/scoreBreakdown.ts` mirrors them.
 
 ### Soft Constraints / Rewards (`constraints.py`)
 

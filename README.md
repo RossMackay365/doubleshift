@@ -35,7 +35,7 @@ schedule-optimiser/
 └── docker-compose.yml  # local dev orchestration
 ```
 
-The two services communicate over HTTP. The frontend sends a JSON payload to `POST /api/optimize`, receives a `job_id`, and polls `GET /api/status/{job_id}` until the solver finishes or times out. A separate `POST /api/verify` endpoint lets users validate hand-edited schedules against all constraints.
+The two services communicate over HTTP. The frontend sends a JSON payload to `POST /api/solve`, receives a `job_id`, and polls `GET /api/status/{job_id}` until the solver finishes or times out. A separate `POST /api/verify` endpoint lets users validate hand-edited schedules against all constraints.
 
 ## Key Concepts
 
@@ -52,7 +52,8 @@ Schedules are scored by soft rewards, each of which can be switched on or off pe
 
 | Reward | Default | Purpose |
 |---|---|---|
-| Back-to-Back | 10,000 | A player-trainer's coaching and playing slots are adjacent |
+| Same Day | 10,000 | A trainer's activities (coaching and playing) aren't spread over several days; trainers with 0 or 1 activities count too |
+| Minimise Wait Time (penalty) | −100 per minute | Every minute a trainer waits between their sessions on the same day |
 | No Travel | 100 | Trainer stays at one venue all day (only with 2+ locations) |
 | Adjacent Groups B2B | 5,000 | Same-gender groups with adjacent levels are scheduled consecutively |
 | Adjacent Groups Same Day | 1,000 | Same as above but just same day |
@@ -66,4 +67,6 @@ Scores are displayed divided by 10,000 in the UI to keep the numbers readable.
 If you define more than one location, you can:
 - Set travel times between venues (enforced as hard constraints)
 - Restrict groups and timeslots to specific locations via the location bitmask
+- With *Court-specific Timeslots* on (Scheduler Settings), choose the exact courts each timeslot runs on, so courts at the same location can have different times
+- With *Name Courts* on (always on with court-specific timeslots, where every court must be named), give each court its own name; names only need to be unique within a location
 - Earn the No Travel reward when a trainer stays at one venue all day

@@ -71,7 +71,8 @@ export default function EditableTable({ columns, rows, onChange, createEmpty }: 
                 {col.header}
               </th>
             ))}
-            <th className="w-12 border-b border-gray-200" />
+            {/* w-px shrinks the delete column to fit its button, so spare width goes to the data columns. */}
+            <th className="w-px border-b border-gray-200" />
           </tr>
         </thead>
         <tbody>
@@ -111,7 +112,7 @@ export default function EditableTable({ columns, rows, onChange, createEmpty }: 
                   )}
                 </td>
               ))}
-              <td className="border-b border-gray-100 px-2.5 py-1">
+              <td className="w-px border-b border-gray-100 px-1 py-1">
                 <button
                   onClick={() => onChange(rows.filter((_, i) => i !== rowIdx))}
                   className="invisible rounded p-1 text-gray-300 hover:text-red-400 group-hover:visible"

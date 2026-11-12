@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { GripVertical } from 'lucide-react';
 import { useSchedule } from '@/components/ScheduleProvider';
-import { REWARDS, MIN_SOLVE_SECONDS, MAX_SOLVE_SECONDS, isRewardActive, rankedRewards, unavailableReason } from '@/lib/settings';
+import { REWARDS, MIN_SOLVE_SECONDS, MAX_SOLVE_SECONDS, courtsNamed, isRewardActive, rankedRewards, unavailableReason } from '@/lib/settings';
 import { RewardSetting, ScheduleData, ScheduleSettings } from '@/lib/types';
 
 // The open schedule's Scheduler Settings. Changes go into the schedule's working copy
@@ -33,6 +33,24 @@ export default function SettingsPage() {
           description="On: groups are female or male, and trainers have a separate level for each. Off: all groups and trainers share one set of levels."
         >
           <Switch checked={settings.genderedTeams} onChange={genderedTeams => update({ genderedTeams })} />
+        </SettingRow>
+        <SettingRow
+          name="Court-specific Timeslots"
+          description="On: each timeslot lists the courts it runs on, so courts at the same location can have different times. Off: timeslots apply to whole locations."
+        >
+          <Switch checked={settings.courtTimeslots} onChange={courtTimeslots => update({ courtTimeslots })} />
+        </SettingRow>
+        <SettingRow
+          name="Name Courts"
+          description={settings.courtTimeslots
+            ? 'Courts are named on the Locations tab. Always on, and every court needs a name, while Court-specific Timeslots is on.'
+            : 'On: name each court on the Locations tab (names only need to be unique within a location). Off: courts are numbered.'}
+        >
+          <Switch
+            checked={courtsNamed(settings)}
+            disabled={settings.courtTimeslots}
+            onChange={nameCourts => update({ nameCourts })}
+          />
         </SettingRow>
       </Section>
 
@@ -210,15 +228,18 @@ function RewardList({ settings, data, onChange }: {
           <p className="mt-1 max-w-lg text-sm text-gray-500">{def.description}</p>
         </div>
         {!hierarchical && (
-          <input
-            type="number"
-            min={0}
-            value={reward.points}
-            disabled={priority === null}
-            onChange={e => setReward(reward.key, { points: Math.max(0, Number(e.target.value) || 0) })}
-            aria-label={`${def.label} points`}
-            className="w-32 shrink-0 rounded-md border border-gray-300 px-2 py-1.5 text-right text-sm focus:border-blue-500 focus:outline-none disabled:bg-gray-50"
-          />
+          <div className="flex shrink-0 items-center gap-1.5 text-sm text-gray-500">
+            <input
+              type="number"
+              min={0}
+              value={reward.points}
+              disabled={priority === null}
+              onChange={e => setReward(reward.key, { points: Math.max(0, Number(e.target.value) || 0) })}
+              aria-label={`${def.label} points`}
+              className="w-32 rounded-md border border-gray-300 px-2 py-1.5 text-right text-sm text-gray-900 focus:border-blue-500 focus:outline-none disabled:bg-gray-50"
+            />
+            {def.perMinute && <span>/ min</span>}
+          </div>
         )}
         <div className="shrink-0 pt-0.5">
           <Switch checked={reward.enabled} disabled={!!reason} onChange={enabled => setEnabled(reward, enabled)} />
