@@ -7,6 +7,7 @@ Everything for building the Windows app and its MSIX package for the Microsoft S
 | `AppxManifest.xml` | The package description: identity, name, logos, `.doubleshift` file association |
 | `Assets/` | The logos inside the package (you make these, see below) |
 | `DoubleShift.ico` | The exe and window icon (you make this) |
+| `Store/` | Box art, poster art and hero art for the Partner Center listing. Not packaged |
 | `make_notices.py` | Writes `THIRD_PARTY_NOTICES.txt` at the repo root |
 | `../build-msix.ps1` | Builds it all |
 

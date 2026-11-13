@@ -49,7 +49,9 @@ $msixVersion = "$version.0"
 
 Step "Frontend build (version $version)"
 Push-Location (Join-Path $root 'frontend')
-try { Run npm ci; Run npm run build } finally { Pop-Location }
+# npm.cmd, not npm: PowerShell's npm.ps1 rereads the typed command line, so it loses
+# arguments passed on through Run.
+try { Run npm.cmd ci; Run npm.cmd run build } finally { Pop-Location }
 
 Step 'Third party notices'
 Run $python -I (Join-Path $root 'packaging\make_notices.py')
