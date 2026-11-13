@@ -3,6 +3,7 @@ import { Suspense } from 'react';
 // The font ships with the app (the geist package uses next/font/local), so builds and the
 // app never need the internet for it.
 import { GeistSans } from 'geist/font/sans';
+import WindowControls from '@/components/WindowControls';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -16,6 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="flex min-h-full flex-col bg-gray-50">
         {/* Suspense is required for pages that read ?file= from the URL (useSearchParams) in a static build. */}
         <Suspense>{children}</Suspense>
+        <WindowControls />
       </body>
     </html>
   );

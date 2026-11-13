@@ -1,5 +1,7 @@
 import json
 import os
+import shutil
+import sys
 import tempfile
 from datetime import datetime, timezone
 
@@ -19,13 +21,42 @@ EXTENSION = ".doubleshift"
 # Bump when the file format changes, and keep reading older versions.
 FILE_VERSION = 1
 CONTENT_FIELDS = ("data", "settings", "last_run")
-RECENT_COUNT = 5
+RECENT_COUNT = 3  # what fits on the home page without scrolling
 INVALID_NAME_CHARS = '\\/:*?"<>|'
 
 
 def init():
     os.makedirs(SCHEDULES_DIR, exist_ok=True)
     os.makedirs(DATA_DIR, exist_ok=True)
+    _add_examples()
+
+
+# The example schedules (backend/examples) are copied into the schedules folder the first
+# time the app runs, and listed under Recently Opened, so a new user has something to open
+# straight away. An install can't write to Documents, so the app does it. A file the user
+# already has is never replaced. The marker lives in AppData, so a reinstall adds any
+# deleted examples back.
+EXAMPLES_DIR = (
+    os.path.join(sys._MEIPASS, "examples") if getattr(sys, "frozen", False)
+    else os.path.join(os.path.dirname(__file__), "..", "examples")
+)
+# Listed in this order, top first.
+EXAMPLES = ("Simple Example", "Complex Example")
+EXAMPLES_MARKER = os.path.join(DATA_DIR, "examples-added")
+
+
+def _add_examples():
+    if os.path.exists(EXAMPLES_MARKER):
+        return
+    for name in reversed(EXAMPLES):  # the recent list puts the last one added on top
+        source = os.path.join(EXAMPLES_DIR, name + EXTENSION)
+        path = os.path.join(SCHEDULES_DIR, name + EXTENSION)
+        if not os.path.isfile(source):
+            continue
+        if not os.path.exists(path):
+            shutil.copyfile(source, path)
+        _add_recent(path)
+    open(EXAMPLES_MARKER, "w").close()
 
 
 def _summary(path):

@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* desktop:… styles apply only in the desktop app (WindowControls adds the class). */
+@custom-variant desktop (&:where(.desktop, .desktop *));
+
 :root {
   --background: #ffffff;
   --foreground: #171717;

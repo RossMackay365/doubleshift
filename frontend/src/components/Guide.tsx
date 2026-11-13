@@ -26,20 +26,22 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
         </p>
         <p>
           There are usually many schedules that work, so DoubleShift also looks for the best one.
-          You decide what &quot;best&quot; means by choosing rewards in Scheduler Settings, such as
+          You decide what &quot;best&quot; means by choosing rewards in ‘Scheduler Settings’, such as
           keeping each trainer&apos;s sessions on one day or keeping them at one location. You can
           switch rewards on and off and put them in the order that matters to you.
         </p>
         <ol>
           <li><strong>Create a schedule</strong> on the home page and give it a name.</li>
-          <li><strong>Add your data</strong> on the Data page: locations, timeslots, groups and trainers.</li>
-          <li><strong>Press Run</strong> on the Scheduler page. You see the best schedule so far while it works.</li>
-          <li><strong>Adjust it</strong> if you like. Press Edit Schedule to move sessions or swap trainers.</li>
+          <li><strong>Add your data</strong> on the ‘Data’ page: locations, timeslots, groups and trainers.</li>
+          <li><strong>Press ‘Run’</strong> on the ‘Scheduler’ page. You see the best schedule so far while it works.</li>
+          <li><strong>Adjust it</strong> if you like. Press ‘Edit Schedule’ to move sessions or swap trainers.</li>
           <li><strong>Save</strong> with the button in the header, or press Ctrl+S.</li>
         </ol>
+        <h4>Example Schedules</h4>
         <p>
-          New here? Open the example schedule from the home page. It is already filled in, so you
-          can press Run straight away and see how everything fits together.
+          Open ‘Simple Example’ or ‘Complex Example’ under ‘Recently Opened’ on the home
+          page. They are already filled in, so you can press ‘Run’ straight away and see how
+          everything fits together. Both are in your DoubleShift folder, so you can change them freely.
         </p>
       </>
     ),
@@ -95,13 +97,13 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
     body: (
       <>
         <p>
-          Open Scheduler Settings with the settings icon in the header. Each schedule has its own
+          Open ‘Scheduler Settings’ with the settings icon in the header. Each schedule has its own
           settings. Switching a setting off never deletes what you entered, so you can switch it back
           on later.
         </p>
         <p>
-          A new schedule starts with every setting switched off and a Max Solve Time of 2 minutes.
-          Three rewards are in use, in this order: Same Day, No Travel and Minimise Wait Time.
+          A new schedule starts with every setting switched off and a ‘Max Solve Time’ of 2 minutes.
+          Three rewards are in use, in this order: ‘Same Day’, ‘No Travel’ and ‘Minimise Wait Time’.
         </p>
         <h4>Max Solve Time</h4>
         <p>
@@ -117,8 +119,8 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
         <h4>Assign Trainers to Groups</h4>
         <p>
           Normally the scheduler decides which trainer takes each group, using their levels. Switch
-          this on if you already know who trains each group. On the Trainers tab you then choose
-          each trainer&apos;s Training Groups yourself, and the scheduler only chooses the day, time
+          this on if you already know who trains each group. On the ‘Trainers’ tab you then choose
+          each trainer&apos;s ‘Training Groups’ yourself, and the scheduler only chooses the day, time
           and space for each session. Levels are no longer needed, unless a reward you use depends
           on them.
         </p>
@@ -129,11 +131,11 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
           sessions mustn&apos;t overlap.
         </p>
         <p>
-          Switching this on adds a Group Rules tab to the Data page. Each rule names the groups
+          Switching this on adds a ‘Group Rules’ tab to the ‘Data’ page. Each rule names the groups
           whose members want to attend, and the groups whose sessions they want to attend. The
           scheduler then keeps those sessions apart, allowing for travel between locations. Mark a
-          rule as Required if the sessions must never overlap. Otherwise it is preferred: the
-          scheduler avoids overlaps where it can, using the Group Rules reward.
+          rule as ‘Required’ if the sessions must never overlap. Otherwise it is preferred: the
+          scheduler avoids overlaps where it can, using the ‘Group Rules’ reward.
         </p>
         <h4>Name Spaces</h4>
         <p>
@@ -160,17 +162,17 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
           scheduler which of them you prefer.
         </p>
         <p>
-          Switch on the rewards that matter to you in Scheduler Settings. For example, Same Day puts
-          all of a trainer&apos;s sessions on one day, and Minimise Wait Time keeps those sessions
+          Switch on the rewards that matter to you in ‘Scheduler Settings’. For example, ‘Same Day’ puts
+          all of a trainer&apos;s sessions on one day, and ‘Minimise Wait Time’ keeps those sessions
           close together. The settings page describes every reward.
         </p>
         <p>
           Some rewards are only available when a particular setting is on, or when your data allows
-          them. For example, No Travel needs two or more locations. The settings page lists these
-          under Unavailable, with what each one needs.
+          them. For example, ‘No Travel’ needs two or more locations. The settings page lists these
+          under ‘Unavailable’, with what each one needs.
         </p>
         <p>
-          The rewards can work in two ways. Choose one with Reward Mode in Scheduler Settings.
+          The rewards can work in two ways. Choose one with ‘Reward Mode’ in ‘Scheduler Settings’.
         </p>
         <h4>Priority Order</h4>
         <p>
@@ -181,7 +183,7 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
         <h4>Points</h4>
         <p>
           Each reward has a number of points, and the schedule with the most points wins. Rewards
-          marked Penalty take their points away instead. Use this
+          marked ‘Penalty’ take their points away instead. Use this
           mode when you want to trade rewards off against each other, for example when two smaller
           rewards together should outweigh a bigger one.
         </p>
@@ -194,16 +196,16 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
     body: (
       <>
         <p>
-          The Scheduler page shows the schedule as a calendar, with a column for each space. While
+          The ‘Scheduler’ page shows the schedule as a calendar, with a column for each space. While
           the scheduler runs, the calendar shows the best schedule found so far.
         </p>
         <ul>
           <li><strong>Optimal</strong> means no better schedule exists for your data and rewards.</li>
-          <li><strong>Time Limit Reached</strong> means the scheduler stopped at Max Solve Time. The schedule works, but a better one may exist. Give it more time if you want it to keep looking.</li>
+          <li><strong>Time Limit Reached</strong> means the scheduler stopped at ‘Max Solve Time’. The schedule works, but a better one may exist. Give it more time if you want it to keep looking.</li>
           <li><strong>Gap</strong> (Points mode) shows how far the score could still be from the best possible. A gap of 0% means the schedule is optimal.</li>
           <li><strong>Score Breakdown</strong> shows how the schedule did on each reward, and who missed out.</li>
         </ul>
-        <p>You can press Cancel at any time. You keep the best schedule found so far.</p>
+        <p>You can press ‘Cancel’ at any time. You keep the best schedule found so far.</p>
       </>
     ),
   },
@@ -214,10 +216,10 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
       <>
         <p>Sometimes you know something the scheduler doesn&apos;t. You can change any schedule by hand.</p>
         <ol>
-          <li>Press <strong>Edit Schedule</strong>.</li>
+          <li>Press ‘Edit Schedule’.</li>
           <li>Drag a session to another space or timeslot. Drop it on another session to swap the two. Use the dropdown on a session to change its trainer.</li>
-          <li>Press <strong>Verify</strong>. DoubleShift checks your changes and tells you about anything that doesn&apos;t work, such as a trainer in two places at once.</li>
-          <li>Press <strong>Apply Changes</strong> to keep your edits, then Save in the header.</li>
+          <li>Press ‘Verify’. DoubleShift checks your changes and tells you about anything that doesn&apos;t work, such as a trainer in two places at once.</li>
+          <li>Press ‘Apply Changes’ to keep your edits, then ‘Save’ in the header.</li>
         </ol>
       </>
     ),
@@ -239,8 +241,8 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
           <li>Change some required group rules to preferred.</li>
         </ul>
         <p>
-          If the scheduler runs out of time before it finds any schedule, raise Max Solve Time in
-          Scheduler Settings and run it again.
+          If the scheduler runs out of time before it finds any schedule, raise ‘Max Solve Time’ in
+          ‘Scheduler Settings’ and run it again.
         </p>
       </>
     ),
@@ -256,10 +258,10 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
         </p>
         <p>
           To share a schedule, send the file to someone else. They can open it from the home page
-          with Open Existing Schedule.
+          with ‘Open Existing Schedule’.
         </p>
         <p>
-          DoubleShift only saves when you press Save. It asks before you leave a schedule with
+          DoubleShift only saves when you press ‘Save’. It asks before you leave a schedule with
           changes you haven&apos;t saved.
         </p>
       </>

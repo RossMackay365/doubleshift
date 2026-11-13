@@ -1,10 +1,12 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { BookOpen, FilePlus, FolderOpen, Sparkles, Upload, X } from 'lucide-react';
+import Image from 'next/image';
+import { BookOpen, FilePlus, FolderOpen, Upload, X } from 'lucide-react';
 import Guide, { SOURCE_URL } from '@/components/Guide';
 import { listSchedules, listRecentSchedules, createSchedule, importSchedule } from '@/lib/api';
 import { desktopApi } from '@/lib/desktop';
+import art from './home-art.png';
 import { ScheduleSummary } from '@/lib/types';
 
 export default function Home() {
@@ -23,6 +25,7 @@ export default function Home() {
       .then(setRecent)
       .catch(e => setError(`Your recent schedules couldn't be loaded. ${e.message}`));
   }, []);
+
   function openSchedule(path: string) {
     router.push(`/data?file=${encodeURIComponent(path)}`);
   }
@@ -71,77 +74,83 @@ export default function Home() {
     }
   }
 
-  // The example ships with the app as a file. Opening it makes a copy in the schedules
-  // folder (like importing any other file), so the user can change and save it freely.
-  async function openExample() {
-    try {
-      const res = await fetch('/Example Schedule.doubleshift');
-      if (!res.ok) throw new Error("The example schedule couldn't be found.");
-      const schedule = await importSchedule(new File([await res.blob()], 'Example Schedule.doubleshift'));
-      openSchedule(schedule.path);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
   return (
-    <main className="mx-auto w-full max-w-3xl px-8 py-20">
-      <h1 className="text-4xl font-semibold text-gray-900 tracking-tight">DoubleShift</h1>
-      <p className="mt-2 text-xl text-gray-500">Training Scheduler</p>
-      <p className="mt-4 max-w-xl text-base text-gray-600">
-        Build a training schedule that works for your groups, your trainers and your spaces.
-      </p>
-
-      <div className="mt-10 flex flex-wrap gap-4">
-        <button
-          onClick={() => { setNewName(''); setDialog('create'); }}
-          className="flex items-center gap-2 rounded-md bg-blue-600 px-6 py-3 text-lg font-medium text-white hover:bg-blue-700 transition-colors"
-        >
-          <FilePlus size={20} />
-          Create New Schedule
-        </button>
-        <button
-          onClick={showOpenDialog}
-          className="flex items-center gap-2 rounded-md border border-gray-300 bg-white px-6 py-3 text-lg font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-        >
-          <FolderOpen size={20} />
-          Open Existing Schedule
-        </button>
+    // The art (logo and name) fills 60% on the left; everything you do is in a centred column
+    // on the right, with the licence line at the very bottom. Narrow browser windows show only
+    // the right side. The page is exactly the window's height, so the art (which scales to
+    // fill its panel) never grows past the window; if the right side runs out of room, only
+    // it scrolls.
+    <main className="flex h-dvh">
+      <div className="relative hidden w-[60%] shrink-0 lg:block">
+        <Image src={art} alt="DoubleShift: Training Scheduler" fill priority sizes="60vw" className="object-cover" />
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-base">
-        <button onClick={openExample} className="flex items-center gap-1.5 font-medium text-blue-600 hover:text-blue-700">
-          <Sparkles size={16} />
-          Open Example Schedule
-        </button>
-        <button onClick={() => setShowGuide(true)} className="flex items-center gap-1.5 font-medium text-blue-600 hover:text-blue-700">
-          <BookOpen size={16} />
-          Read the Guide
-        </button>
+      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-8 py-8 lg:px-10">
+        {/* my-auto centres the column, and still lets it scroll from the top when it's taller
+            than the window (items-center would cut off its top). */}
+        <div className="flex flex-1 justify-center">
+          <div className="my-auto w-full max-w-md">
+            <h1 className="text-3xl font-semibold tracking-tight text-gray-900">Welcome to DoubleShift!</h1>
+            <p className="mt-2 text-base text-gray-600">
+              Build a training schedule that works for your groups, your trainers and your spaces.
+            </p>
+
+            {/* One button per row, all the same width. */}
+            <div className="mt-6 flex flex-col gap-3">
+              <button
+                onClick={() => { setNewName(''); setDialog('create'); }}
+                className="flex items-center justify-center gap-2 rounded-md bg-blue-600 px-6 py-3 text-lg font-medium text-white hover:bg-blue-700 transition-colors"
+              >
+                <FilePlus size={20} />
+                Create New Schedule
+              </button>
+              <button
+                onClick={showOpenDialog}
+                className="flex items-center justify-center gap-2 rounded-md border border-gray-300 bg-white px-6 py-3 text-lg font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <FolderOpen size={20} />
+                Open Existing Schedule
+              </button>
+            </div>
+
+            {error && (
+              <div className="mt-6 flex items-start justify-between gap-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+                <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600"><X size={16} /></button>
+              </div>
+            )}
+
+            <h2 className="mt-8 mb-3 text-base font-semibold text-gray-800">Recently Opened</h2>
+            {recent.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-gray-300 bg-white px-6 py-8 text-center text-sm text-gray-500">
+                Schedules you open will appear here.
+              </div>
+            ) : (
+              <ScheduleList schedules={recent} onOpen={openSchedule} />
+            )}
+
+            {/* Help for first-timers comes last, out of the way of people who know the app. */}
+            <div className="mt-8 border-t border-gray-200 pt-6">
+              <h2 className="text-base font-semibold text-gray-800">First Time?</h2>
+              <button
+                onClick={() => setShowGuide(true)}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-gray-300 bg-white px-6 py-3 text-lg font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <BookOpen size={20} />
+                Read the Guide
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <footer className="pt-6 text-center text-sm text-gray-400">
+          DoubleShift is free and open source under the AGPL-3.0 license.
+          <br />
+          <a href={SOURCE_URL} target="_blank" rel="noopener noreferrer" className="font-medium text-gray-500 underline hover:text-gray-700">
+            View the source code
+          </a>
+        </footer>
       </div>
-
-      {error && (
-        <div className="mt-6 flex items-start justify-between gap-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600"><X size={16} /></button>
-        </div>
-      )}
-
-      <h2 className="mt-14 mb-4 text-base font-semibold text-gray-700">Recently Opened</h2>
-      {recent.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-gray-300 bg-white px-6 py-8 text-center text-sm text-gray-500">
-          Schedules you open will appear here. To look around first, open the example schedule.
-        </div>
-      ) : (
-        <ScheduleList schedules={recent} onOpen={openSchedule} />
-      )}
-
-      <footer className="mt-16 text-sm text-gray-400">
-        DoubleShift is free and open source under the AGPL-3.0 license.{' '}
-        <a href={SOURCE_URL} target="_blank" rel="noopener noreferrer" className="font-medium text-gray-500 underline hover:text-gray-700">
-          View the source code
-        </a>
-      </footer>
 
       {dialog === 'create' && (
         <Dialog title="Create New Schedule" onClose={() => setDialog(null)}>

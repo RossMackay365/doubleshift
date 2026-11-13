@@ -19,7 +19,11 @@ if not os.path.isdir(FRONTEND):
 # uvicorn picks its parts by name at runtime.
 datas, binaries, hiddenimports = collect_all("ortools")
 hiddenimports += collect_submodules("uvicorn")
-datas += [(FRONTEND, "frontend"), (os.path.join(ROOT, "LICENSE"), ".")]
+datas += [
+    (FRONTEND, "frontend"),
+    (os.path.join(SPECPATH, "examples"), "examples"),  # copied to Documents on first run
+    (os.path.join(ROOT, "LICENSE"), "."),
+]
 
 a = Analysis(
     ["desktop.py"],

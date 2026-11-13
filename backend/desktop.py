@@ -28,11 +28,61 @@ class DesktopApi:
         # The underscore keeps it out of window.pywebview.api.
         self._leave_warning = warning
 
+    # The window has no Windows title bar, so the page draws its own minimise, maximise and
+    # close buttons (frontend/src/components/WindowControls.tsx) and calls these.
+
+    def minimize(self):
+        import webview
+
+        webview.windows[0].minimize()
+
+    def toggle_maximize(self):
+        """Maximises or restores the window, and returns whether it's now maximised."""
+        import webview
+
+        window = webview.windows[0]
+        if self.is_maximized():
+            window.restore()
+        else:
+            _fit_maximised_to_screen(window)
+            window.maximize()
+        return self.is_maximized()
+
+    def is_maximized(self):
+        import webview
+
+        return str(webview.windows[0].native.WindowState) == "Maximized"
+
+    def close(self):
+        # The normal close, so _confirm_close still asks about unsaved changes.
+        import webview
+
+        webview.windows[0].destroy()
+
     def _confirm_close(self, window):
         """Runs as the window starts to close. Returning False keeps it open."""
         warning = getattr(self, "_leave_warning", "")
         if warning:
             return window.create_confirmation_dialog("DoubleShift", warning)
+
+
+def _fit_maximised_to_screen(window):
+    """A window without a title bar covers the taskbar when maximised. Limiting its maximised
+    size to the screen's work area (the screen minus the taskbar) keeps the taskbar visible."""
+    from System import Func, Type
+    from System.Windows.Forms import Screen
+
+    form = window.native
+
+    def fit():
+        form.MaximizedBounds = Screen.FromHandle(form.Handle).WorkingArea
+
+    form.Invoke(Func[Type](fit))
+
+
+def _start_maximised(window):
+    _fit_maximised_to_screen(window)
+    window.maximize()
 
 
 def main():
@@ -93,7 +143,10 @@ def main():
         "DoubleShift: Training Scheduler",
         url,
         js_api=api,
-        maximized=True,
+        # No Windows title bar: the page has its own window buttons. This also means no
+        # resizing by the window's edges; the maximise button switches between the two sizes.
+        frameless=True,
+        easy_drag=False,  # only the page's drag strip moves the window, not the whole page
         # The size when the user un-maximises it.
         width=1440,
         height=900,
@@ -101,6 +154,8 @@ def main():
         text_select=True,
     )
     window.events.closing += api._confirm_close
+    # Maximised once it's on screen, so the taskbar-safe size can be set first.
+    window.events.shown += _start_maximised
     webview.start()
 
     # The window is closed: stop any scheduler run, then the backend.

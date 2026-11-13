@@ -5,6 +5,8 @@ const nextConfig: NextConfig = {
   output: 'export',
   // Each page becomes <page>/index.html, so the backend can serve /data/ and the like.
   trailingSlash: true,
+  // A static site has no server to resize images, so images are used as they are.
+  images: { unoptimized: true },
 };
 
 export default nextConfig;

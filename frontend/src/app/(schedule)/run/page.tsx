@@ -195,14 +195,9 @@ export default function RunPage() {
   return (
     <div>
       {/* Header row */}
-      <div className="mb-8 flex flex-wrap items-start gap-4">
+      <div className="mb-8 flex flex-wrap items-center gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Scheduler</h1>
-          <p className="mt-1 text-base text-gray-500">
-            {data && todo.length === 0
-              ? `Ready to schedule ${count(data.groups.length, 'group')} with ${count(data.trainers.length, 'trainer')}, ${count(spaces.length, 'space')} and ${count(data.timeslots.length, 'timeslot')}.`
-              : 'Press Run to build a schedule from your data.'}
-          </p>
         </div>
         <div className="flex flex-wrap gap-2.5 ml-auto">
           {!editMode && (
@@ -359,7 +354,7 @@ export default function RunPage() {
               )}
               {stats?.optimal && (
                 <span className="flex items-center gap-1.5 text-green-600">
-                  <CheckCircle2 size={16} /> Optimal: no better schedule exists
+                  <CheckCircle2 size={16} /> Optimal: No Better Schedule Exists
                 </span>
               )}
               {status === 'completed' && !stats?.optimal && stats?.stopped_reason === 'time_limit' && (
@@ -416,7 +411,7 @@ export default function RunPage() {
                   )}
                   {verifyResult.gap_percent === 0 && (
                     <span className="flex items-center gap-1.5 text-green-600">
-                      <CheckCircle2 size={16} /> Optimal: no better schedule exists
+                      <CheckCircle2 size={16} /> Optimal: No Better Schedule Exists
                     </span>
                   )}
                 </>
@@ -512,11 +507,6 @@ export default function RunPage() {
 // A score in points, e.g. "60,500".
 function points(score: number): string {
   return Math.round(score).toLocaleString();
-}
-
-// "1 group", "2 groups".
-function count(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
 function StatusBadge({ status }: { status: string }) {

@@ -145,9 +145,9 @@ Runs send `reward_config` (`{ REWARD_KEY: points }`, `0` for rewards that are of
 
 Four things teach a new user the app. Keep them in step when you add or rename a feature.
 
-- **On-screen text.** Each page and each Data tab starts with one line saying what it is for. The Scheduler page lists what is still missing before a run can start.
+- **On-screen text.** Each Data tab starts with one line saying what it is for. The Scheduler page lists what is still missing before a run can start.
 - **Info hints** (`components/InfoHint.tsx`). The "i" buttons next to terms that need explaining. A table column gets one from its `hint`.
 - **The guide** (`components/Guide.tsx`). A panel opened from the home page and the "?" in the header. Its text lives in that file.
-- **The example schedule** (`public/Example Schedule.doubleshift`). A real schedule file that ships with the app. "Open Example Schedule" on the home page imports a copy of it, so the user can change it freely.
+- **The example schedules** (`backend/examples/`: Simple Example and Complex Example). Real schedule files that ship with the app. The first time the app runs, the backend copies them into the schedules folder and lists them under Recently Opened (`_add_examples` in `schedules.py`), so the user can open and change them straight away.
 
-Writing style for everything the user reads: active voice, kind, and as simple as possible. Say what to do next. Use one word for each idea (location, timeslot, session, group, trainer, level, "the scheduler"). Avoid dashes and symbols in sentences.
+Writing style for everything the user reads: active voice, kind, and as simple as possible. Say what to do next. Use one word for each idea (location, timeslot, session, group, trainer, level, "the scheduler"). Avoid dashes and symbols in sentences. In the guide, put the names of things the user sees in the app in single quotes (‘Recently Opened’, ‘Scheduler Settings’, ‘Same Day’).

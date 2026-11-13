@@ -1,10 +1,12 @@
 'use client';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { CheckCircle, CircleHelp, House, Loader2, Play, Save, Settings, Table2 } from 'lucide-react';
 import Guide from '@/components/Guide';
 import { useSchedule } from '@/components/ScheduleProvider';
+import logo from '@/app/icon.png';
 
 // Header for an open schedule: its name (with an unsaved-changes dot), the Data /
 // Scheduler tabs, Save, Settings, Guide and Home. Status indicators never change the width of the
@@ -41,10 +43,26 @@ export default function Nav() {
     }`;
 
   return (
-    <nav className="border-b border-gray-200 bg-white">
+    // In the desktop app the window buttons sit in the top 32px (WindowControls), so the
+    // header's content moves down by that much. The header keeps the same room for a
+    // scrollbar as the page below it (see the schedule layout), so the two line up.
+    <nav className="relative shrink-0 overflow-y-hidden border-b border-gray-200 bg-white [scrollbar-gutter:stable] desktop:pt-8">
+      {/* The logo sits in the space left of the content, centred between the window's edge and
+          the start of "DoubleShift" (that space is the 2rem padding, plus half of whatever the
+          window has beyond the 80rem content width). The name still lines up with the page
+          below. Narrow windows leave too little space, so they don't show it. */}
+      <Link
+        href="/"
+        className="absolute bottom-0 hidden h-24 -translate-x-1/2 items-center min-[1328px]:flex"
+        style={{ left: 'calc(max(2rem, (100% - 80rem) / 2 + 2rem) / 2)' }}
+      >
+        <Image src={logo} alt="DoubleShift home" width={32} height={32} />
+      </Link>
       <div className="mx-auto max-w-7xl px-8 flex h-24 items-center justify-between gap-6">
         <div className="flex min-w-0 items-center gap-3">
-          <Link href="/" className="text-2xl leading-none font-semibold text-gray-800 tracking-tight">DoubleShift</Link>
+          <Link href="/" className="text-2xl leading-none font-semibold text-gray-800 tracking-tight">
+            DoubleShift
+          </Link>
           <span className="truncate text-lg leading-none text-gray-500">{name}</span>
           {isModified && (
             <span className="flex shrink-0 items-center gap-1.5 text-sm font-medium text-amber-600">

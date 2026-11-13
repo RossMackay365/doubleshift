@@ -1,0 +1,704 @@
+{
+  "version": 1,
+  "data": {
+    "locations": [
+      {
+        "name": "Main Hall",
+        "spaces": 3
+      },
+      {
+        "name": "East Gym",
+        "spaces": 2
+      },
+      {
+        "name": "Riverside Centre",
+        "spaces": 2
+      }
+    ],
+    "timeslots": [
+      {
+        "day": "Monday",
+        "start": "17:00",
+        "finish": "18:30",
+        "location_bitmask": [
+          1,
+          1,
+          0
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Monday",
+        "start": "18:30",
+        "finish": "20:00",
+        "location_bitmask": [
+          1,
+          1,
+          0
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Tuesday",
+        "start": "17:00",
+        "finish": "18:30",
+        "location_bitmask": [
+          0,
+          1,
+          1
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Tuesday",
+        "start": "18:30",
+        "finish": "20:00",
+        "location_bitmask": [
+          0,
+          1,
+          1
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Thursday",
+        "start": "17:00",
+        "finish": "18:30",
+        "location_bitmask": [
+          1,
+          0,
+          1
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Thursday",
+        "start": "18:30",
+        "finish": "20:00",
+        "location_bitmask": [
+          1,
+          0,
+          1
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Thursday",
+        "start": "20:00",
+        "finish": "21:30",
+        "location_bitmask": [
+          1,
+          0,
+          0
+        ],
+        "spaces": []
+      }
+    ],
+    "groups": [
+      {
+        "name": "Women's 1",
+        "level": 1,
+        "gender": "female",
+        "availability_bitmask": [
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Women's 2",
+        "level": 2,
+        "gender": "female",
+        "availability_bitmask": [
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Women's 3",
+        "level": 3,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Women's 4",
+        "level": 4,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Men's 1",
+        "level": 1,
+        "gender": "male",
+        "availability_bitmask": [
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Men's 2",
+        "level": 2,
+        "gender": "male",
+        "availability_bitmask": [
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Men's 3",
+        "level": 3,
+        "gender": "male",
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Men's 4",
+        "level": 4,
+        "gender": "male",
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Girls 1",
+        "level": 2,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Girls 2",
+        "level": 3,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          0
+        ]
+      },
+      {
+        "name": "Girls 3",
+        "level": 4,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          0
+        ]
+      },
+      {
+        "name": "Boys 1",
+        "level": 2,
+        "gender": "male",
+        "availability_bitmask": [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Boys 2",
+        "level": 3,
+        "gender": "male",
+        "availability_bitmask": [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          0
+        ]
+      },
+      {
+        "name": "Boys 3",
+        "level": 4,
+        "gender": "male",
+        "availability_bitmask": [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          0
+        ]
+      },
+      {
+        "name": "Masters Women",
+        "level": 3,
+        "gender": "female",
+        "availability_bitmask": [
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Masters Men",
+        "level": 3,
+        "gender": "male",
+        "availability_bitmask": [
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Social Women",
+        "level": 5,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "Social Men",
+        "level": 5,
+        "gender": "male",
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          0,
+          0
+        ]
+      }
+    ],
+    "trainers": [
+      {
+        "name": "Alex Morgan",
+        "groupID": "",
+        "femaleLevel": 1,
+        "maleLevel": 2,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Jamie Fox",
+        "groupID": "",
+        "femaleLevel": 2,
+        "maleLevel": 1,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Sam Taylor",
+        "groupID": "Women's 1",
+        "femaleLevel": 2,
+        "maleLevel": 3,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Lee Harper",
+        "groupID": "Men's 1",
+        "femaleLevel": 3,
+        "maleLevel": 2,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Jo Bennett",
+        "groupID": "",
+        "femaleLevel": 2,
+        "maleLevel": 0,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Chris Novak",
+        "groupID": "",
+        "femaleLevel": 0,
+        "maleLevel": 2,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          0
+        ]
+      },
+      {
+        "name": "Robin Clarke",
+        "groupID": "Women's 2",
+        "femaleLevel": 3,
+        "maleLevel": 3,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Dana Price",
+        "groupID": "Men's 2",
+        "femaleLevel": 3,
+        "maleLevel": 3,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "Pat Delgado",
+        "groupID": "",
+        "femaleLevel": 4,
+        "maleLevel": 4,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "Morgan Lee",
+        "groupID": "Masters Women",
+        "femaleLevel": 4,
+        "maleLevel": 4,
+        "capacity": 1,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Casey Brooks",
+        "groupID": "",
+        "femaleLevel": 5,
+        "maleLevel": 5,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0
+        ]
+      },
+      {
+        "name": "Riley Chen",
+        "groupID": "Masters Men",
+        "femaleLevel": 5,
+        "maleLevel": 5,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "groupRules": [
+      {
+        "type": "notAtSameTime",
+        "groups": [
+          "Girls 1"
+        ],
+        "against": [
+          "Women's 2"
+        ],
+        "required": true
+      },
+      {
+        "type": "notAtSameTime",
+        "groups": [
+          "Boys 1"
+        ],
+        "against": [
+          "Men's 2"
+        ],
+        "required": true
+      },
+      {
+        "type": "notAtSameTime",
+        "groups": [
+          "Masters Women"
+        ],
+        "against": [
+          "Masters Men"
+        ],
+        "required": false
+      }
+    ],
+    "travelTimes": [
+      {
+        "from": "Main Hall",
+        "to": "East Gym",
+        "minutes": 15
+      },
+      {
+        "from": "Main Hall",
+        "to": "Riverside Centre",
+        "minutes": 25
+      },
+      {
+        "from": "East Gym",
+        "to": "Riverside Centre",
+        "minutes": 20
+      }
+    ]
+  },
+  "settings": {
+    "maxSolveSeconds": 60,
+    "genderedTeams": true,
+    "groupRules": true,
+    "rewardMode": "points"
+  },
+  "last_run": null
+}

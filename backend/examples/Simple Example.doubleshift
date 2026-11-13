@@ -3,71 +3,43 @@
   "data": {
     "locations": [
       {
-        "name": "Main Hall",
-        "spaces": 2
-      },
-      {
-        "name": "East Gym",
-        "spaces": 1
+        "name": "Club Hall",
+        "spaces": 3
       }
     ],
     "timeslots": [
       {
         "day": "Monday",
-        "start": "18:00",
-        "finish": "19:30",
+        "start": "17:00",
+        "finish": "18:30",
         "location_bitmask": [
-          1,
           1
         ],
         "spaces": []
       },
       {
         "day": "Monday",
-        "start": "19:30",
-        "finish": "21:00",
+        "start": "18:30",
+        "finish": "20:00",
         "location_bitmask": [
-          1,
           1
         ],
         "spaces": []
       },
       {
         "day": "Wednesday",
-        "start": "18:00",
-        "finish": "19:30",
+        "start": "17:00",
+        "finish": "18:30",
         "location_bitmask": [
-          1,
-          0
-        ],
-        "spaces": []
-      },
-      {
-        "day": "Wednesday",
-        "start": "19:30",
-        "finish": "21:00",
-        "location_bitmask": [
-          1,
-          0
-        ],
-        "spaces": []
-      },
-      {
-        "day": "Thursday",
-        "start": "18:00",
-        "finish": "19:30",
-        "location_bitmask": [
-          0,
           1
         ],
         "spaces": []
       },
       {
-        "day": "Thursday",
-        "start": "19:30",
-        "finish": "21:00",
+        "day": "Wednesday",
+        "start": "18:30",
+        "finish": "20:00",
         "location_bitmask": [
-          0,
           1
         ],
         "spaces": []
@@ -79,15 +51,12 @@
         "level": 1,
         "gender": "female",
         "availability_bitmask": [
+          0,
           1,
-          1,
-          1,
-          1,
-          1,
+          0,
           1
         ],
         "location_bitmask": [
-          1,
           1
         ]
       },
@@ -96,15 +65,12 @@
         "level": 2,
         "gender": "female",
         "availability_bitmask": [
+          0,
           1,
-          1,
-          1,
-          1,
-          1,
+          0,
           1
         ],
         "location_bitmask": [
-          1,
           1
         ]
       },
@@ -116,12 +82,9 @@
           1,
           1,
           1,
-          1,
-          1,
           1
         ],
         "location_bitmask": [
-          1,
           1
         ]
       },
@@ -133,12 +96,9 @@
           1,
           1,
           1,
-          1,
-          1,
           1
         ],
         "location_bitmask": [
-          1,
           1
         ]
       },
@@ -150,63 +110,51 @@
           0,
           1,
           0,
-          1,
-          0,
           1
         ],
         "location_bitmask": [
-          1,
           1
         ]
       },
       {
         "name": "Juniors 1",
+        "level": 2,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          0,
+          1,
+          0
+        ],
+        "location_bitmask": [
+          1
+        ]
+      },
+      {
+        "name": "Juniors 2",
         "level": 3,
         "gender": "female",
         "availability_bitmask": [
           1,
           0,
           1,
-          0,
-          1,
           0
         ],
         "location_bitmask": [
-          1,
           1
         ]
       },
       {
-        "name": "Juniors 2",
+        "name": "Juniors 3",
         "level": 4,
         "gender": "female",
         "availability_bitmask": [
           1,
           0,
           1,
-          0,
-          1,
           0
         ],
         "location_bitmask": [
-          1,
-          1
-        ]
-      },
-      {
-        "name": "Juniors 3",
-        "level": 5,
-        "gender": "female",
-        "availability_bitmask": [
-          1,
-          0,
-          1,
-          0,
-          1,
-          0
-        ],
-        "location_bitmask": [
-          1,
           1
         ]
       },
@@ -218,12 +166,9 @@
           1,
           1,
           1,
-          1,
-          1,
           1
         ],
         "location_bitmask": [
-          1,
           1
         ]
       },
@@ -233,14 +178,11 @@
         "gender": "female",
         "availability_bitmask": [
           1,
+          0,
           1,
-          1,
-          1,
-          1,
-          1
+          0
         ],
         "location_bitmask": [
-          0,
           1
         ]
       },
@@ -252,12 +194,9 @@
           1,
           1,
           1,
-          1,
-          1,
           1
         ],
         "location_bitmask": [
-          1,
           1
         ]
       },
@@ -269,12 +208,9 @@
           0,
           1,
           0,
-          1,
-          0,
           1
         ],
         "location_bitmask": [
-          1,
           1
         ]
       }
@@ -288,8 +224,6 @@
         "capacity": 2,
         "trainingGroups": [],
         "availability_bitmask": [
-          1,
-          1,
           1,
           1,
           1,
@@ -307,21 +241,17 @@
           1,
           1,
           1,
-          1,
-          1,
           1
         ]
       },
       {
         "name": "Jo Bennett",
-        "groupID": "Seniors 2",
-        "femaleLevel": 3,
+        "groupID": "",
+        "femaleLevel": 2,
         "maleLevel": 1,
         "capacity": 2,
         "trainingGroups": [],
         "availability_bitmask": [
-          1,
-          1,
           1,
           1,
           0,
@@ -336,10 +266,8 @@
         "capacity": 2,
         "trainingGroups": [],
         "availability_bitmask": [
-          1,
-          1,
-          1,
-          1,
+          0,
+          0,
           1,
           1
         ]
@@ -355,8 +283,6 @@
           1,
           1,
           1,
-          1,
-          1,
           1
         ]
       },
@@ -365,42 +291,18 @@
         "groupID": "",
         "femaleLevel": 5,
         "maleLevel": 1,
-        "capacity": 1,
-        "trainingGroups": [],
-        "availability_bitmask": [
-          0,
-          0,
-          1,
-          1,
-          1,
-          1
-        ]
-      },
-      {
-        "name": "Morgan Lee",
-        "groupID": "Masters",
-        "femaleLevel": 5,
-        "maleLevel": 1,
-        "capacity": 1,
+        "capacity": 2,
         "trainingGroups": [],
         "availability_bitmask": [
           1,
+          0,
           1,
-          1,
-          1,
-          1,
-          1
+          0
         ]
       }
     ],
     "groupRules": [],
-    "travelTimes": [
-      {
-        "from": "Main Hall",
-        "to": "East Gym",
-        "minutes": 20
-      }
-    ]
+    "travelTimes": []
   },
   "settings": {
     "maxSolveSeconds": 30

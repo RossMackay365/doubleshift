@@ -23,6 +23,7 @@ backend/
 │   ├── diagnostics.py  # Post-INFEASIBLE analysis: diagnoses likely causes
 │   ├── schedules.py    # Saved schedules (.doubleshift files) and the recently opened list
 │   └── state.py        # In-memory job state (thread-safe)
+├── examples/            # Simple and Complex Example, copied to the schedules folder on first run
 ├── desktop.py           # The desktop app: runs the backend on 127.0.0.1 and opens a window
 ├── doubleshift.spec     # PyInstaller build of the desktop app
 ├── requirements.txt

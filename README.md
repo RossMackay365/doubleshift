@@ -8,7 +8,7 @@ DoubleShift builds a training schedule for a club or school. You tell it which g
 2. **Run the scheduler.** You see the best schedule so far while it works.
 3. **Make it yours.** Drag sessions, swap trainers, and verify your changes before you keep them.
 
-New to the app? Choose **Open Example Schedule** on the home page for a schedule that is already filled in, or **Read the Guide** for a walkthrough.
+New to the app? Open **Simple Example** or **Complex Example** under Recently Opened on the home page. Both are already filled in. Or choose **Read the Guide** for a walkthrough.
 
 Each schedule (its data, its settings and the last run) is saved as a `.doubleshift` file in `Documents\DoubleShift` (or `./schedules` when running with Docker), so you can back it up or share it like any document.
 
