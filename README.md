@@ -1,14 +1,16 @@
 # DoubleShift: Training Scheduler
 
-An app for scheduling training sessions. Given groups, trainers, courts, and timeslots, it uses constraint programming to produce a schedule that satisfies hard rules (qualifications, availability, court capacity, travel time) while maximising soft objectives (trainer convenience, session adjacency).
+DoubleShift builds a training schedule for a club or school. You tell it which groups need a session, who can train them, and where and when sessions can happen. It finds a schedule that works for everyone, and then makes it as convenient as it can.
 
 ## How It Works
 
-1. **Data** — enter your groups, trainers, courts, and timeslots on the Data page
-2. **Run** — submit to the solver; intermediate results appear in real time as the solver improves its solution
-3. **Edit** — drag and drop sessions, swap trainers, then verify before saving
+1. **Add your data.** Enter your locations, timeslots, groups and trainers on the Data page.
+2. **Run the scheduler.** You see the best schedule so far while it works.
+3. **Make it yours.** Drag sessions, swap trainers, and verify your changes before you keep them.
 
-Each schedule (input data, Scheduler Settings and the last run) is saved as a `.doubleshift` file in `Documents\DoubleShift` (or `./schedules` when running with Docker), so it can be backed up or shared like any document. The backend runs [Google OR-Tools CP-SAT](https://developers.google.com/optimization/reference/python/sat/python/cp_model) in a background thread and exposes progress via a polling endpoint.
+New to the app? Choose **Open Example Schedule** on the home page for a schedule that is already filled in, or **Read the Guide** for a walkthrough.
+
+Each schedule (its data, its settings and the last run) is saved as a `.doubleshift` file in `Documents\DoubleShift` (or `./schedules` when running with Docker), so you can back it up or share it like any document.
 
 ## Quick Start
 
@@ -29,44 +31,56 @@ See [backend/README.md](backend/README.md) and [frontend/README.md](frontend/REA
 ## Architecture
 
 ```
-schedule-optimiser/
-├── backend/            # FastAPI + OR-Tools — solver, constraint checking
-├── frontend/           # Next.js — data entry, schedule grid, editing UI
+doubleshift/
+├── backend/            # FastAPI + OR-Tools: the scheduler and the schedule checks
+├── frontend/           # Next.js: data entry, schedule calendar, editing, guide
 └── docker-compose.yml  # local dev orchestration
 ```
 
-The two services communicate over HTTP. The frontend sends a JSON payload to `POST /api/solve`, receives a `job_id`, and polls `GET /api/status/{job_id}` until the solver finishes or times out. A separate `POST /api/verify` endpoint lets users validate hand-edited schedules against all constraints.
+The two services communicate over HTTP. The frontend sends a JSON payload to `POST /api/solve`, receives a `job_id`, and polls `GET /api/status/{job_id}` until the scheduler finishes or reaches its time limit. A separate `POST /api/verify` endpoint checks hand-edited schedules against every rule. The backend runs [Google OR-Tools CP-SAT](https://developers.google.com/optimization/reference/python/sat/python/cp_model) in a separate process.
 
 ## Key Concepts
 
+### Locations and Spaces
+
+A **location** is a place where sessions happen. Each location has one or more **spaces**, such as halls, pitches, pools or rooms, and a space holds one session at a time.
+
 ### Groups and Trainers
 
-- **Group** — a training group defined by gender (`female`/`male`) and level, with levels defined per gender
-- **Trainer** — has separate skill ranks for each gender; a trainer qualifies for a group when their rank ≤ the group's level
-- **Scheduler Settings** can change this per schedule: with *Gendered Teams* off there is one set of levels for everyone, and with *Assign Trainers to Groups* on you choose each trainer's Training Groups yourself (the solver then only picks times and courts, and group levels are only needed by the level-based rewards)
-- A trainer can also be a **player** (member of a group). The solver prevents them from coaching a group they play in, and prevents coaching and playing in the same timeslot.
+- **Group**: a set of people who train together. Each group gets one session.
+- **Trainer**: leads a group's session. A trainer's **capacity** is the most groups they can train.
+- **Level**: decides which trainers can train which groups. Level 1 is the most advanced, and a trainer can train any group at their own level or a less advanced one. Level 0 means the trainer does not train.
+- A trainer can also be a **member** of a group. They never train their own group, and they are never scheduled to train while their own group has its session.
+- **Scheduler Settings** can change this for each schedule. With *Gendered Groups* on, each group is female or male and trainers have a level for each. With *Assign Trainers to Groups* on, you choose each trainer's Training Groups yourself, and the scheduler only picks times and spaces.
 
-### Scoring
+### Rewards
 
-Schedules are scored by soft rewards, each of which can be switched on or off per schedule. In **points** mode (below) the schedule with the highest points total wins. In **hierarchical** mode the rewards are ranked instead, and optimised one at a time in that order, so a higher-ranked reward is never given up for a lower one.
+Every schedule follows your data. Rewards tell the scheduler which of the possible schedules you prefer, and each one can be switched on or off for each schedule.
 
-| Reward | Default | Purpose |
+In **Priority Order** mode (the default) the rewards are ranked. The scheduler works through them from the top and never gives up a higher reward to improve a lower one. In **Points** mode each reward has points, and the schedule with the most points wins.
+
+| Reward | Default points | What it does |
 |---|---|---|
-| Same Day | 10,000 | A trainer's activities (coaching and playing) aren't spread over several days; trainers with 0 or 1 activities count too |
-| Minimise Wait Time (penalty) | −100 per minute | Every minute a trainer waits between their sessions on the same day |
-| No Travel | 100 | Trainer stays at one venue all day (only with 2+ locations) |
-| Adjacent Groups B2B | 5,000 | Same-gender groups with adjacent levels are scheduled consecutively |
-| Adjacent Groups Same Day | 1,000 | Same as above but just same day |
-| No Net Height Changes | 1 | Same-gender groups on the same court in consecutive slots |
-| Trainer Cannot Sub Up (penalty) | −10,000 | A trainer cannot sub in a higher group due to giving training |
+| Same Day | 10,000 | Puts all of a trainer's sessions on one day (the sessions they train and their own group's session) |
+| No Travel | 100 | Keeps a trainer at one location for the whole day (needs two or more locations) |
+| Minimise Wait Time (penalty) | 100 per minute | Counts every minute a trainer waits between sessions on the same day |
+| Group Rules (penalty) | 100 per minute | Counts every minute a group's members would miss of a session they want to attend (preferred group rules only; needs the *Group Rules* setting) |
+| Free to Fill In (penalty) | 10,000 | Keeps a trainer free while the group one level above their own trains, so they can fill in if needed |
+| Adjacent Groups Back-to-Back | 5,000 | Puts groups one level apart in sessions straight after each other |
+| Adjacent Groups Same Day | 1,000 | Puts groups one level apart on the same day |
+| Same Gender Back-to-Back | 1 | Keeps sessions for the same gender together in a space, so equipment and setup stay the same (needs *Gendered Groups*) |
 
-Scores are displayed divided by 10,000 in the UI to keep the numbers readable.
+In Points mode the score is the sum of every reward's points. Priority Order mode has no single score; the Score Breakdown shows how each reward did.
 
-### Multi-Venue Support
+### More Than One Location
 
-If you define more than one location, you can:
-- Set travel times between venues (enforced as hard constraints)
-- Restrict groups and timeslots to specific locations via the location bitmask
-- With *Court-specific Timeslots* on (Scheduler Settings), choose the exact courts each timeslot runs on, so courts at the same location can have different times
-- With *Name Courts* on (always on with court-specific timeslots, where every court must be named), give each court its own name; names only need to be unique within a location
-- Earn the No Travel reward when a trainer stays at one venue all day
+If you have more than one location, you can:
+
+- Set the travel time between locations. The scheduler always gives trainers enough time to travel.
+- Limit groups and timeslots to certain locations.
+- Switch on *Space-Specific Timeslots* (Scheduler Settings) to choose the exact spaces each timeslot runs in, so spaces at one location can have different times.
+- Switch on *Name Spaces* to give each space its own name. Two spaces at one location need different names. This is always on with space-specific timeslots.
+
+### Group Rules
+
+With the *Group Rules* setting on, the Data page gets a **Group Rules** tab. Each rule reads "members of these groups can attend those groups' sessions", for example when one group's members also want to join another group's session. A conflict is measured as the minutes of the other session they would miss while attending all of their own, including travel between locations. A rule is either **required** (the schedule must follow it) or **preferred** (each minute missed counts against the Group Rules reward).

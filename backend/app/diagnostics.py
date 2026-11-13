@@ -1,5 +1,10 @@
 from collections import defaultdict
-from .constraints import slot_allows_court
+from .constraints import slot_allows_space
+
+
+def _count(n: int, word: str) -> str:
+    """'1 group', '2 groups'."""
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
 def diagnose_infeasibility(data: dict) -> list[str]:
@@ -10,14 +15,14 @@ def diagnose_infeasibility(data: dict) -> list[str]:
     subtle, e.g. trainers competing for the same slot across groups).
 
     Checks: unqualified/unavailable groups, location filtering, sole-trainer
-    bottlenecks, court×slot capacity, per-day
+    bottlenecks, space and timeslot capacity, per-day
     over-demand, and trainer capacity coverage.
     """
     issues: list[str] = []
     raw = data["raw"]
     groups    = raw["groups"]
     trainers  = raw["trainers"]
-    courts    = raw["courts"]
+    spaces    = raw["spaces"]
     timeslots = raw["timeslots"]
 
     quals    = data["quals"]
@@ -26,7 +31,7 @@ def diagnose_infeasibility(data: dict) -> list[str]:
     members  = data["members"]
     trainer_keys    = list(data["indices"]["t"].keys())
     capacity        = data.get("capacity", [1] * len(trainers))
-    court_venue     = data.get("court_venue", {})
+    space_venue     = data.get("space_venue", {})
     location_to_idx = data.get("location_to_idx", {})
     # Mention genders in messages only when the groups actually have more than one.
     gendered = len({str(g.get("gender", "")).strip().lower() for g in groups}) > 1
@@ -38,7 +43,7 @@ def diagnose_infeasibility(data: dict) -> list[str]:
     num_g = len(groups)
     num_t = len(trainers)
     num_s = len(timeslots)
-    num_c = len(courts)
+    num_c = len(spaces)
 
     # --- Per-group checks ---
     for gi, group in enumerate(groups):
@@ -51,45 +56,47 @@ def diagnose_infeasibility(data: dict) -> list[str]:
         non_self  = [ti for ti in qualified if trainer_keys[ti] not in member_set]
 
         if not qualified:
+            levels = "1" if level == 1 else f"between 1 and {level}"
             if assigned:
                 issues.append(
-                    f"Group '{g_name}' has no trainer assigned. Choose it as a trainer's Training Group."
+                    f'"{g_name}" doesn\'t have a trainer yet. Choose it as a Training Group '
+                    f"for one of your trainers on the Data page."
                 )
             elif gendered:
                 issues.append(
-                    f"Group '{g_name}' ({gender}, level {level}) has no qualified "
-                    f"trainer. Add a trainer whose {gender} level is between 1 and {level}."
+                    f'"{g_name}" ({gender}, level {level}) doesn\'t have a trainer who can '
+                    f"train it. Add a trainer whose {gender} level is {levels}."
                 )
             else:
                 issues.append(
-                    f"Group '{g_name}' (level {level}) has no qualified trainer. "
-                    f"Add a trainer whose level is between 1 and {level}."
+                    f'"{g_name}" (level {level}) doesn\'t have a trainer who can train it. '
+                    f"Add a trainer whose level is {levels}."
                 )
             continue
 
         if not non_self:
             issues.append(
-                f"Group '{g_name}' has qualified trainers, but every one of them "
-                f"plays in this group, so none can coach it."
+                f'Every trainer who can train "{g_name}" is also a member of it, and a '
+                f"trainer can't train their own group. Add another trainer for this group."
             )
             continue
 
         g_slots = [si for si in range(num_s) if g_avail[gi][si]]
         if not g_slots:
             issues.append(
-                f"Group '{g_name}' has no available timeslots — its availability "
-                f"is empty."
+                f'"{g_name}" isn\'t available in any timeslot. Select at least one '
+                f"timeslot in its Availability."
             )
             continue
 
         if not any(t_avail[ti][si] for ti in non_self for si in g_slots):
             issues.append(
-                f"Group '{g_name}' has qualified trainers and available slots, "
-                f"but none of those trainers are free during the group's slots."
+                f'No trainer who can train "{g_name}" is available when the group is. '
+                f"Give the group and its trainers at least one timeslot in common."
             )
             continue
 
-        # Check if location filtering removes all valid (trainer, court, slot) combos.
+        # Check if location filtering removes all valid (trainer, space, slot) combos.
         if location_to_idx:
             g_loc = group.get("location_bitmask", [])
             valid_combo = False
@@ -99,7 +106,7 @@ def diagnose_infeasibility(data: dict) -> list[str]:
                 for ci in range(num_c):
                     if valid_combo:
                         break
-                    venue   = court_venue.get(ci, "")
+                    venue   = space_venue.get(ci, "")
                     loc_idx = location_to_idx.get(venue)
                     if loc_idx is not None and g_loc:
                         if loc_idx < len(g_loc) and g_loc[loc_idx] == 0:
@@ -107,14 +114,14 @@ def diagnose_infeasibility(data: dict) -> list[str]:
                     for si in g_slots:
                         if not t_avail[ti][si]:
                             continue
-                        if not slot_allows_court(timeslots[si], courts[ci], location_to_idx):
+                        if not slot_allows_space(timeslots[si], spaces[ci], location_to_idx):
                             continue
                         valid_combo = True
                         break
             if not valid_combo:
                 issues.append(
-                    f"Group '{g_name}' has no valid assignment after location "
-                    f"filtering — check the group's and timeslots' location settings."
+                    f'No timeslot at the locations chosen for "{g_name}" suits both the group '
+                    f"and a trainer. Check the Locations chosen for the group and for its timeslots."
                 )
 
     # Trainers who could coach each group: qualified, not a member, and free during
@@ -145,30 +152,31 @@ def diagnose_infeasibility(data: dict) -> list[str]:
         if len(g_list) > cap:
             g_names = [groups[gi].get("name", f"group {gi}") for gi in g_list]
             issues.append(
-                f"Trainer '{trainers[ti]['name']}' is the only qualified option for "
-                f"{len(g_list)} groups ({', '.join(g_names)}) but has capacity {cap}. "
-                f"Increase their capacity or add another qualified trainer."
+                f'"{trainers[ti]["name"]}" is the only trainer who can train '
+                f"{_count(len(g_list), 'group')} ({', '.join(g_names)}), but their capacity is {cap}. "
+                f"Raise their capacity or add another trainer for these groups."
             )
 
-    # Build slots_by_day once — reused in per-day and travel checks below.
+    # Build slots_by_day once: reused in per-day and travel checks below.
     slots_by_day: dict = defaultdict(list)
     for i, s in enumerate(timeslots):
         slots_by_day[s['day']].append(i)
 
-    # --- Total court×slot capacity check ---
+    # --- Total space and timeslot capacity check ---
     total_capacity = num_c * num_s
     if num_g > total_capacity:
         issues.append(
-            f"You have {num_g} groups but only {num_c} court(s) × {num_s} slot(s) "
-            f"= {total_capacity} session slots. Demand exceeds capacity."
+            f"You have {_count(num_g, 'group')}, but {_count(num_c, 'space')} and "
+            f"{_count(num_s, 'timeslot')} only leave room for {_count(total_capacity, 'session')}. "
+            f"Add spaces or timeslots."
         )
 
     # --- Per-day demand vs capacity check ---
     # Detects when too many groups are locked to one day (their valid assignments only
-    # exist on that day), so there aren't enough court-slots to fit them all.
+    # exist on that day), so there aren't enough space-slots to fit them all.
 
-    def _slot_court_ok(si, ci):
-        return slot_allows_court(timeslots[si], courts[ci], location_to_idx)
+    def _slot_space_ok(si, ci):
+        return slot_allows_space(timeslots[si], spaces[ci], location_to_idx)
 
     def _group_valid_on_slot(gi, si):
         member_set = set(members.get(gi, []))
@@ -179,9 +187,9 @@ def diagnose_infeasibility(data: dict) -> list[str]:
             if trainer_keys[ti] in member_set:
                 continue
             for ci in range(num_c):
-                if not _slot_court_ok(si, ci):
+                if not _slot_space_ok(si, ci):
                     continue
-                venue   = court_venue.get(ci, '')
+                venue   = space_venue.get(ci, '')
                 loc_idx = location_to_idx.get(venue)
                 if loc_idx is not None and g_loc and loc_idx < len(g_loc) and g_loc[loc_idx] == 0:
                     continue
@@ -199,11 +207,11 @@ def diagnose_infeasibility(data: dict) -> list[str]:
                 valid_days.add(day)
         group_valid_days[gi] = valid_days
 
-    # Count valid (court, slot) pairs per day — upper bound on groups schedulable that day.
+    # Count valid (space, slot) pairs per day: upper bound on groups schedulable that day.
     day_capacity: dict = defaultdict(int)
     for ci in range(num_c):
         for si in range(num_s):
-            if _slot_court_ok(si, ci):
+            if _slot_space_ok(si, ci):
                 day_capacity[timeslots[si]['day']] += 1
 
     day_locked: dict = defaultdict(list)
@@ -218,10 +226,10 @@ def diagnose_infeasibility(data: dict) -> list[str]:
         locked = day_locked.get(day, [])
         if locked and len(locked) > cap:
             issues.append(
-                f"Day '{day}': {len(locked)} group(s) can only be scheduled on this day "
-                f"({', '.join(locked[:5])}{'...' if len(locked) > 5 else ''}) "
-                f"but only {cap} session slot(s) are available. "
-                f"Add more courts/slots on this day or spread group availability to other days."
+                f"{_count(len(locked), 'group')} can only train on {day} "
+                f"({', '.join(locked[:5])}{' and others' if len(locked) > 5 else ''}), "
+                f"but {day} only has room for {_count(cap, 'session')}. "
+                f"Add spaces or timeslots on {day}, or make these groups available on other days."
             )
 
     # --- Trainer qualification coverage checks ---
@@ -230,8 +238,8 @@ def diagnose_infeasibility(data: dict) -> list[str]:
     total_trainer_capacity = sum(capacity[ti] for ti in range(num_t))
     if total_trainer_capacity < num_g:
         issues.append(
-            f"Total trainer capacity ({total_trainer_capacity}) is less than the number of "
-            f"groups ({num_g}). Increase trainer capacities or reduce group count."
+            f"Your trainers can train {_count(total_trainer_capacity, 'group')} between them, "
+            f"but you have {_count(num_g, 'group')}. Raise some trainers' capacity or add trainers."
         )
 
     # 2. Gender-stratified capacity: enough qualified trainer capacity per gender.
@@ -252,39 +260,45 @@ def diagnose_infeasibility(data: dict) -> list[str]:
                         and any(t_avail[ti][si] for si in g_slots)):
                     gender_qualified.add(ti)
         gender_capacity = sum(capacity[ti] if ti < len(capacity) else 1 for ti in gender_qualified)
-        if gender_capacity < len(gender_groups):
+        # Without genders this is the same shortfall as the total capacity check above.
+        already_reported = not gendered and total_trainer_capacity < num_g
+        if gender_capacity < len(gender_groups) and not already_reported:
             label = f"{gender} " if gendered else ""
             issues.append(
-                f"Not enough trainer capacity for {label}groups: "
-                f"{len(gender_groups)} {label}group(s) but all qualified trainers "
-                f"combined have capacity {gender_capacity}. "
-                f"Add more {label}qualified trainers or increase their capacity."
+                f"You have {_count(len(gender_groups), label + 'group')}, but the trainers who can "
+                f"train them can only take {_count(gender_capacity, 'group')} between them. "
+                f"Add trainers for these groups or raise their capacity."
             )
 
-    # 3. Groups with very few qualified trainer options — bottleneck candidates even
+    # 3. Groups with very few qualified trainer options: bottleneck candidates even
     #    when no single trainer is the sole option.
     thin_groups: list = []
     for gi in range(num_g):
         g_name  = groups[gi].get('name', f'group {gi}')
         capable = capable_by_group[gi]
         if 1 <= len(capable) <= 2:
-            cap_total = sum(capacity[ti] if ti < len(capacity) else 1 for ti in capable)
-            thin_groups.append((
-                g_name,
-                [trainers[ti]['name'] for ti in capable],
-                cap_total,
-            ))
+            thin_groups.append((g_name, [trainers[ti]['name'] for ti in capable]))
 
     if thin_groups and not assigned:
-        lines = [
-            f"'{name}' — only {', '.join(t_names)} (combined capacity {cap})"
-            for name, t_names, cap in thin_groups[:6]
-        ]
+        # One message per group (the first few), so each reads as a plain sentence.
+        for name, t_names in thin_groups[:6]:
+            issues.append(
+                f'Only {" and ".join(t_names)} can train "{name}". If they are needed elsewhere, '
+                f"this group has no trainer. Consider adding another trainer for it."
+            )
+        if len(thin_groups) > 6:
+            issues.append(
+                f"{_count(len(thin_groups) - 6, 'more group')} also depend on only one or two trainers."
+            )
+
+    # --- Required group rules ---
+    # They forbid certain groups from clashing; enough of them can leave no valid
+    # arrangement even when everything else fits, so mention them as a possible cause.
+    required_rules = [pair for pair in data.get("group_rule_pairs", []) if pair[2]]
+    if required_rules:
         issues.append(
-            f"{len(thin_groups)} group(s) have very few qualified trainer options "
-            f"and are vulnerable to conflicts:\n" +
-            "\n".join(f"  • {l}" for l in lines) +
-            (f"\n  (and {len(thin_groups) - 6} more)" if len(thin_groups) > 6 else "")
+            f"{_count(len(required_rules), 'pair')} of groups must follow a required group rule. "
+            f"Together these rules may leave no possible schedule. Try making some of them preferred."
         )
 
     return issues

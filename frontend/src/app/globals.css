@@ -24,3 +24,11 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Text inside the user guide (components/Guide.tsx). */
+.guide p, .guide ul, .guide ol { margin-bottom: 0.75rem; color: #4b5563; line-height: 1.6; }
+.guide ul { list-style: disc; padding-left: 1.25rem; }
+.guide ol { list-style: decimal; padding-left: 1.25rem; }
+.guide li { margin-bottom: 0.35rem; }
+.guide h4 { margin: 1.1rem 0 0.25rem; font-weight: 600; color: #1f2937; }
+.guide strong { color: #1f2937; }

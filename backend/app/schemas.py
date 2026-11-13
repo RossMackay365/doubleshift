@@ -28,16 +28,16 @@ class Trainer(BaseModel):
     trainerID: str
     groupID: str  # references Group.groupID
     name: str
-    ladiesRank: int
-    gentsRank: int
+    femaleLevel: int
+    maleLevel: int
     capacity: int = 1  # max number of groups this trainer can be assigned to coach
     availability_bitmask: list[int]
     # Groups this trainer is assigned to coach (groupIDs). Only used when assign_trainers is set.
     assigned_groups: list[str] = []
 
 
-class Court(BaseModel):
-    courtName: str
+class Space(BaseModel):
+    spaceName: str
     location: str
 
 
@@ -53,20 +53,31 @@ class Timeslot(BaseModel):
     start: str
     finish: str
     location_bitmask: list[int] = []
-    # Court-specific timeslots: the names of the courts this slot runs on (empty = all).
-    courts: list[str] = []
+    # Space-specific timeslots: the names of the spaces this slot runs on (empty = all).
+    spaces: list[str] = []
+
+
+class GroupRule(BaseModel):
+    # 'notAtSameTime': each group in `groups` shouldn't clash with each group in `against`
+    # (e.g. so a team's players can watch other groups train). Groups are groupIDs.
+    # Required rules must hold; preferred ones are penalised per minute (Group Rules reward).
+    type: Literal['notAtSameTime'] = 'notAtSameTime'
+    groups: list[str]
+    against: list[str]
+    required: bool = False
 
 
 class SolveRequest(BaseModel):
     groups:         list[Group]
     trainers:       list[Trainer]
-    courts:         list[Court]
+    spaces:         list[Space]
     timeslots:      list[Timeslot]
     travel_times:   list[TravelTime] = []
     location_names: list[str] = []
     reward_config:  RewardPoints
     # Trainers coach only their assigned_groups, instead of any group their level qualifies them for.
     assign_trainers: bool = False
+    group_rules: list[GroupRule] = []
     # 'points': maximise the points-weighted total. 'hierarchical': optimise the rewards in
     # reward_order one at a time, never giving up a higher one for a lower one.
     reward_mode: Literal['points', 'hierarchical'] = 'points'
@@ -85,20 +96,21 @@ class JobStatusResponse(BaseModel):
 class ScheduleEntryModel(BaseModel):
     group:    str
     trainer:  str
-    court:    str
+    space:    str
     timeslot: int
 
 
 class VerifyRequest(BaseModel):
     groups:         list[Group]
     trainers:       list[Trainer]
-    courts:         list[Court]
+    spaces:         list[Space]
     timeslots:      list[Timeslot]
     schedule:       list[ScheduleEntryModel]
     travel_times:   list[TravelTime] = []
     location_names: list[str] = []
     reward_config:  RewardPoints
     assign_trainers: bool = False
+    group_rules: list[GroupRule] = []
 
 
 class VerifyResponse(BaseModel):

@@ -7,8 +7,8 @@ import { applySettings, rankedRewards, rewardsPayload } from './settings';
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_API_URL ?? 'http://localhost:8000';
 
 // Prepare data for the solver: apply the settings (see applySettings), auto-generate
-// IDs, expand locations → courts, and resolve group names (Player Group, Training
-// Groups) → IDs.
+// IDs, expand locations into spaces, and resolve group names (Member Of, Training
+// Groups) into IDs.
 function withIDs(rawData: ScheduleData, settings: ScheduleSettings) {
   const data = applySettings(rawData, settings);
   const groups = data.groups.map((g, i) => ({ ...g, groupID: `g${i}` }));
@@ -24,7 +24,7 @@ function withIDs(rawData: ScheduleData, settings: ScheduleSettings) {
   }));
 
   const timeslots = data.timeslots.map((s, i) => ({ ...s, id: i }));
-  const courts    = expandLocations(data.locations ?? []);
+  const spaces    = expandLocations(data.locations ?? []);
 
   const travel_times = (data.travelTimes ?? []).map(tt => ({
     from_venue: tt.from,
@@ -34,7 +34,44 @@ function withIDs(rawData: ScheduleData, settings: ScheduleSettings) {
 
   const location_names = (data.locations ?? []).map(l => l.name);
 
-  return { groups, trainers, timeslots, courts, travel_times, location_names, assign_trainers: settings.assignTrainers };
+  // Group rules with groups on both sides (rules being filled in may not have yet).
+  const group_rules = (data.groupRules ?? [])
+    .map(r => ({
+      ...r,
+      groups:  r.groups.flatMap(name => nameToGroupID.get(name) ?? []),
+      against: r.against.flatMap(name => nameToGroupID.get(name) ?? []),
+    }))
+    .filter(r => r.groups.length > 0 && r.against.length > 0);
+
+  return {
+    groups, trainers, timeslots, spaces, travel_times, location_names, group_rules,
+    assign_trainers: settings.assignTrainers,
+  };
+}
+
+// Sends a request to the backend. Failures throw an Error whose message is written for the
+// user: the backend's own message (its `detail`) when it has one.
+async function request(path: string, init?: RequestInit, allow404 = false): Promise<Response> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, init);
+  } catch {
+    throw new Error("DoubleShift can't reach its scheduler right now. Please close the app, open it again and retry.");
+  }
+  if (!res.ok && !(allow404 && res.status === 404)) await throwError(res);
+  return res;
+}
+
+async function throwError(res: Response): Promise<never> {
+  const body = await res.json().catch(() => null);
+  if (typeof body?.detail === 'string') throw new Error(body.detail);
+  // The backend rejected the data's shape (it lists the fields, which wouldn't help here).
+  if (res.status === 422) throw new Error("Some of your data isn't filled in the way the scheduler expects. Please check the Data page and try again.");
+  throw new Error('Something went wrong. Please try again.');
+}
+
+function json(method: string, body: unknown): RequestInit {
+  return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
 }
 
 export async function startSolve(data: ScheduleData, settings: ScheduleSettings): Promise<{ job_id: string }> {
@@ -45,24 +82,17 @@ export async function startSolve(data: ScheduleData, settings: ScheduleSettings)
     reward_mode: settings.rewardMode,
     reward_order: rankedRewards(settings, data).map(r => r.key),
   };
-  const res = await fetch(`${API_BASE}/api/solve`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error(await res.text());
+  const res = await request('/api/solve', json('POST', payload));
   return res.json();
 }
 
 export async function getJobStatus(jobId: string): Promise<JobStatus> {
-  const res = await fetch(`${API_BASE}/api/status/${jobId}`);
-  if (!res.ok) throw new Error(`Status ${res.status}`);
+  const res = await request(`/api/status/${jobId}`);
   return res.json();
 }
 
 export async function cancelSolve(jobId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/cancel/${jobId}`, { method: 'POST' });
-  if (!res.ok) throw new Error(await res.text());
+  await request(`/api/cancel/${jobId}`, { method: 'POST' });
 }
 
 export async function verifySchedule(
@@ -75,42 +105,24 @@ export async function verifySchedule(
     schedule,
     reward_config: rewardsPayload(settings, data),
   };
-  const res = await fetch(`${API_BASE}/api/verify`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error(await res.text());
+  const res = await request('/api/verify', json('POST', payload));
   return res.json();
 }
 
 // --- Saved schedules (.doubleshift files, identified by their path) ---
 
-// Throw the backend's error message (its `detail`) rather than raw JSON.
-async function throwError(res: Response): Promise<never> {
-  const body = await res.json().catch(() => null);
-  throw new Error(body?.detail ?? res.statusText);
-}
-
 export async function listSchedules(): Promise<{ folder: string; schedules: ScheduleSummary[] }> {
-  const res = await fetch(`${API_BASE}/api/schedules`);
-  if (!res.ok) await throwError(res);
+  const res = await request('/api/schedules');
   return res.json();
 }
 
 export async function listRecentSchedules(): Promise<ScheduleSummary[]> {
-  const res = await fetch(`${API_BASE}/api/recent`);
-  if (!res.ok) await throwError(res);
+  const res = await request('/api/recent');
   return res.json();
 }
 
 export async function createSchedule(name: string): Promise<ScheduleSummary> {
-  const res = await fetch(`${API_BASE}/api/schedules`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
-  });
-  if (!res.ok) await throwError(res);
+  const res = await request('/api/schedules', json('POST', { name }));
   return res.json();
 }
 
@@ -122,28 +134,17 @@ export async function importSchedule(file: File): Promise<ScheduleSummary> {
   } catch {
     throw new Error('This file is not a DoubleShift schedule.');
   }
-  const res = await fetch(`${API_BASE}/api/schedules/import`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: file.name.replace(/\.doubleshift$/i, ''), file: parsed }),
-  });
-  if (!res.ok) await throwError(res);
+  const res = await request('/api/schedules/import', json('POST', { name: file.name.replace(/\.doubleshift$/i, ''), file: parsed }));
   return res.json();
 }
 
 // Returns null if the file doesn't exist. Also marks it as recently opened.
 export async function getSchedule(path: string): Promise<SavedSchedule | null> {
-  const res = await fetch(`${API_BASE}/api/schedule?path=${encodeURIComponent(path)}`);
+  const res = await request(`/api/schedule?path=${encodeURIComponent(path)}`, undefined, true);
   if (res.status === 404) return null;
-  if (!res.ok) await throwError(res);
   return res.json();
 }
 
 export async function saveSchedule(path: string, contents: ScheduleContents): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/schedule?path=${encodeURIComponent(path)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(contents),
-  });
-  if (!res.ok) await throwError(res);
+  await request(`/api/schedule?path=${encodeURIComponent(path)}`, json('PUT', contents));
 }

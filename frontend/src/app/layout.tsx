@@ -8,9 +8,6 @@ const geist = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
 export const metadata: Metadata = {
   title: 'DoubleShift: Training Scheduler',
   description: 'Training session scheduler',
-  icons: {
-    icon: '/favicon.png',
-  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

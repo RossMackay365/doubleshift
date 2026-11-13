@@ -1,4 +1,4 @@
-import { ScheduleData, ScheduleEntry, ScheduleSettings, slotsOverlap, toMinutes } from './types';
+import { ScheduleData, ScheduleEntry, ScheduleSettings, expandLocations, missedMinutes, slotsOverlap, toMinutes } from './types';
 import { rewardPoints } from './settings';
 
 export interface TrainerBreakdownItem {
@@ -25,11 +25,14 @@ export interface ScoreBreakdown {
   adjGroupSameDayCount: number;
   adjGroupB2bPenaltyCount: number;
   adjGroupB2bPenaltyTrainers: string[];
+  // Preferred group rules broken: [own group, group it avoids conflicts with] and the
+  // minutes of the latter's session the former would miss.
+  groupRuleClashes: { groups: [string, string]; minutes: number }[];
 }
 
 // Slots are compared by their actual times (toMinutes / slotsOverlap in types.ts, mirroring
 // the backend's constraints.py), so timeslots can be entered in any order and can overlap
-// on different courts.
+// on different spaces.
 export function computeScoreBreakdown(
   schedule: ScheduleEntry[],
   data: ScheduleData,
@@ -102,7 +105,7 @@ export function computeScoreBreakdown(
     })
     .filter((x): x is TrainerBreakdownItem => x !== null);
 
-  // Schedule-level: count per-court consecutive slot pairs where the same gender plays,
+  // Schedule-level: count per-space consecutive slot pairs where the same gender follows itself,
   // and total transitions where both slots have a group (the denominator).
   let genderConsecCount = 0;
   let genderPossibleCount = 0;
@@ -111,7 +114,7 @@ export function computeScoreBreakdown(
     for (const entry of entriesAt) {
       const gender = groupGender.get(entry.group);
       if (!gender) continue;
-      const nextEntry = schedule.find(e => e.timeslot === nextS && e.court === entry.court);
+      const nextEntry = schedule.find(e => e.timeslot === nextS && e.space === entry.space);
       if (!nextEntry || !groupGender.get(nextEntry.group)) continue;
       genderPossibleCount++;
       if (groupGender.get(nextEntry.group) === gender) genderConsecCount++;
@@ -124,16 +127,11 @@ export function computeScoreBreakdown(
   let noTravelPossibleDays = 0;
   const noTravelMissedSet = new Set<string>();
 
+  // Each space's location, keyed by the space's name as the schedule uses it (named or
+  // numbered, see expandLocations).
+  const spaceVenue = new Map(expandLocations(locations ?? []).map(c => [c.spaceName, c.location]));
   const distinctVenues = new Set((locations ?? []).map(l => l.name));
   if (distinctVenues.size >= 2) {
-    // court name → venue name
-    const courtVenue = new Map<string, string>();
-    for (const loc of locations ?? []) {
-      for (let i = 1; i <= loc.courts; i++) {
-        courtVenue.set(`${loc.name} ${i}`, loc.name);
-      }
-    }
-
     for (const trainer of trainers) {
       const coachEntries  = schedule.filter(e => e.trainer === trainer.name);
       const playingEntries = trainer.groupID
@@ -146,7 +144,7 @@ export function computeScoreBreakdown(
         const active = allEntries.filter(e => daySlots.includes(e.timeslot));
         if (active.length < 2) continue;  // 1 activity = no travel possible
         noTravelPossibleDays++;
-        const venues = new Set(active.map(e => courtVenue.get(e.court) ?? '').filter(Boolean));
+        const venues = new Set(active.map(e => spaceVenue.get(e.space) ?? '').filter(Boolean));
         if (venues.size <= 1) {
           noTravelDays++;
         } else {
@@ -156,27 +154,16 @@ export function computeScoreBreakdown(
     }
   }
 
-  // Adjacent group back-to-back reward: same gender, adjacent level (±1),
+  // Adjacent group back-to-back reward: same gender, adjacent level (+/-1),
   // consecutive slots on the same day, same venue.
   const multiLocation = distinctVenues.size >= 2;
 
-  // court name → venue (reuse courtVenue if already built, otherwise build it)
-  const courtVenueForAdj = distinctVenues.size >= 2
-    ? (() => {
-        const m = new Map<string, string>();
-        for (const loc of locations ?? []) {
-          for (let i = 1; i <= loc.courts; i++) m.set(`${loc.name} ${i}`, loc.name);
-        }
-        return m;
-      })()
-    : new Map<string, string>();
-
-  // group name → { slotIdx, venue }
+  // group name -> { slotIdx, venue }
   const groupSchedule = new Map<string, { slotIdx: number; venue: string }>();
   for (const entry of schedule) {
     groupSchedule.set(entry.group, {
       slotIdx: entry.timeslot,
-      venue: courtVenueForAdj.get(entry.court) ?? '',
+      venue: spaceVenue.get(entry.space) ?? '',
     });
   }
 
@@ -203,8 +190,8 @@ export function computeScoreBreakdown(
       const sb = groupSchedule.get(gb.name);
       if (!sa || !sb) continue;
 
-      // Penalty: one per slot where a player-trainer from the lower-level group coaches
-      // while the higher-level group plays (in that slot or an overlapping one), on any
+      // Penalty: one per slot where a trainer who is a member of the lower-level group trains
+      // while the higher-level group has its session (in that slot or an overlapping one), on any
       // day or venue (mirrors the backend). Level 1 is the highest.
       const [higher, lowerName] = ga.level < gb.level ? [sa, gb.name] : [sb, ga.name];
       const lowerMembers = trainers.filter(t => t.groupID === lowerName).map(t => t.name);
@@ -243,5 +230,38 @@ export function computeScoreBreakdown(
     adjGroupSameDayCount,
     adjGroupB2bPenaltyCount,
     adjGroupB2bPenaltyTrainers: [...penaltyTrainersSet],
+    groupRuleClashes: groupRuleClashes(schedule, data),
   };
+}
+
+// Preferred group rules broken by the schedule, each direction once (mirrors the backend:
+// a direction counts as required if any rule requires it, and required ones aren't
+// penalised, Verify reports them instead).
+function groupRuleClashes(schedule: ScheduleEntry[], data: ScheduleData): ScoreBreakdown['groupRuleClashes'] {
+  // Each (own group, group to avoid) direction once.
+  const pairs = new Map<string, { groups: [string, string]; required: boolean }>();
+  for (const rule of data.groupRules ?? []) {
+    for (const a of rule.groups) {
+      for (const b of rule.against) {
+        if (a === b) continue;
+        const groups: [string, string] = [a, b];
+        const key = groups.join('\n');
+        pairs.set(key, { groups, required: (pairs.get(key)?.required ?? false) || rule.required });
+      }
+    }
+  }
+  const spaceLocation = new Map(expandLocations(data.locations).map(c => [c.spaceName, c.location]));
+  const placed = new Map(schedule.map(e => [e.group, e]));
+  const clashes: ScoreBreakdown['groupRuleClashes'] = [];
+  for (const { groups: [a, b], required } of pairs.values()) {
+    const ea = placed.get(a);
+    const eb = placed.get(b);
+    if (required || !ea || !eb) continue;
+    const minutes = missedMinutes(
+      data.timeslots[ea.timeslot], spaceLocation.get(ea.space) ?? '',
+      data.timeslots[eb.timeslot], spaceLocation.get(eb.space) ?? '', data.travelTimes,
+    );
+    if (minutes > 0) clashes.push({ groups: [a, b], minutes });
+  }
+  return clashes;
 }

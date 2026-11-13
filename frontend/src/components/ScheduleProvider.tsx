@@ -89,7 +89,7 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
       await saveSchedule(path, contents);
       setSavedJson(contentsJson);
     } catch (e) {
-      alert(`Save failed: ${e instanceof Error ? e.message : e}`);
+      alert(`Your schedule couldn't be saved. ${e instanceof Error ? e.message : e}`);
     }
   }, [path, contents, contentsJson]);
 
@@ -144,7 +144,7 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
       }
     } catch (e) {
       if (jobIdRef.current !== jobId) return;
-      setRunError(String(e));
+      setRunError(e instanceof Error ? e.message : String(e));
       finishRun();
     }
   }
@@ -165,7 +165,7 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
       intervalRef.current = setInterval(() => poll(job_id, runSettings), POLL_MS);
       poll(job_id, runSettings);
     } catch (e) {
-      setRunError(String(e));
+      setRunError(e instanceof Error ? e.message : String(e));
       finishRun();
     }
   }
@@ -173,7 +173,7 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
   async function cancelRun() {
     const jobId = jobIdRef.current;
     if (!jobId) {
-      // No job on the server yet — just stop.
+      // No job on the server yet, so just stop.
       finishRun();
       return;
     }
@@ -183,7 +183,7 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
       // stores the best schedule found so far as the last run.
       await cancelSolve(jobId);
     } catch (e) {
-      setRunError(String(e));
+      setRunError(e instanceof Error ? e.message : String(e));
       setCancelling(false);
     }
   }
@@ -211,8 +211,8 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
   useEffect(() => {
     if (!isModified && !running) return;
     const warning = running
-      ? 'A run is in progress and will be cancelled. Leave anyway?'
-      : 'You have unsaved changes. Leave without saving?';
+      ? 'The scheduler is still running. If you leave now, it stops. Leave anyway?'
+      : "You have changes you haven't saved. Leave without saving?";
     function onBeforeUnload(e: BeforeUnloadEvent) {
       e.preventDefault();
     }
@@ -232,7 +232,7 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
     };
   }, [isModified, running]);
 
-  if (loadError) return <ScheduleNotFound message={`This schedule could not be opened: ${loadError}`} />;
+  if (loadError) return <ScheduleNotFound message={`This schedule couldn't be opened. ${loadError}`} />;
   if (status === 'notFound') return <ScheduleNotFound />;
   if (status === 'loading') return null;
 

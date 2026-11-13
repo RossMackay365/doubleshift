@@ -1,9 +1,11 @@
 'use client';
 import { Trash2, Plus } from 'lucide-react';
+import InfoHint from '@/components/InfoHint';
 
 export interface Column {
   key: string;
   header: string;
+  hint?: string; // a short explanation, shown from an "i" button beside the header
   type?: 'text' | 'number' | 'select';
   options?: string[];
   placeholder?: string;
@@ -68,7 +70,10 @@ export default function EditableTable({ columns, rows, onChange, createEmpty }: 
                 style={col.width ? { width: col.width } : undefined}
                 className="border-b border-gray-200 px-4 py-3 text-left text-sm font-semibold uppercase tracking-wide text-gray-500"
               >
-                {col.header}
+                <span className="flex items-center gap-1.5">
+                  {col.header}
+                  {col.hint && <InfoHint label={col.header}>{col.hint}</InfoHint>}
+                </span>
               </th>
             ))}
             {/* w-px shrinks the delete column to fit its button, so spare width goes to the data columns. */}
@@ -79,7 +84,7 @@ export default function EditableTable({ columns, rows, onChange, createEmpty }: 
           {rows.length === 0 && (
             <tr>
               <td colSpan={columns.length + 1} className="py-12 text-center text-base text-gray-400">
-                No rows — paste from a spreadsheet or click Add row
+                No rows yet. Paste from a spreadsheet or click Add Row.
               </td>
             </tr>
           )}
@@ -115,6 +120,7 @@ export default function EditableTable({ columns, rows, onChange, createEmpty }: 
               <td className="w-px border-b border-gray-100 px-1 py-1">
                 <button
                   onClick={() => onChange(rows.filter((_, i) => i !== rowIdx))}
+                  title="Delete row"
                   className="invisible rounded p-1 text-gray-300 hover:text-red-400 group-hover:visible"
                 >
                   <Trash2 size={15} />
@@ -124,14 +130,15 @@ export default function EditableTable({ columns, rows, onChange, createEmpty }: 
           ))}
         </tbody>
       </table>
-      <div className="border-t border-gray-100 bg-gray-50 px-4 py-2.5">
+      <div className="flex items-center justify-between gap-4 border-t border-gray-100 bg-gray-50 px-4 py-2.5">
         <button
           onClick={() => onChange([...rows, createEmpty()])}
           className="flex items-center gap-1.5 text-base text-gray-400 hover:text-gray-700"
         >
           <Plus size={15} />
-          Add row
+          Add Row
         </button>
+        <span className="text-sm text-gray-400">Tip: you can paste rows straight from a spreadsheet.</span>
       </div>
     </div>
   );

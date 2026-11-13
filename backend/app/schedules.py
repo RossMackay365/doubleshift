@@ -38,7 +38,7 @@ def _summary(path):
 
 def _check_path(path):
     if not path.lower().endswith(EXTENSION):
-        raise ValueError(f"Not a {EXTENSION} file")
+        raise ValueError("This file is not a DoubleShift schedule.")
 
 
 def _write(path, contents):
@@ -75,15 +75,15 @@ def create_schedule(name, contents=None, rename_if_taken=False):
     """
     name = name.strip()
     if not name:
-        raise ValueError("Schedule name is required.")
+        raise ValueError("Please give your schedule a name.")
     if any(c in INVALID_NAME_CHARS for c in name):
-        raise ValueError(f"Schedule name can't contain any of {INVALID_NAME_CHARS}")
+        raise ValueError(f"A schedule name can't contain these characters: {' '.join(INVALID_NAME_CHARS)}")
 
     path = os.path.join(SCHEDULES_DIR, name + EXTENSION)
     copy = 2
     while os.path.exists(path):
         if not rename_if_taken:
-            raise FileExistsError(f'A schedule named "{name}" already exists.')
+            raise FileExistsError(f'You already have a schedule named "{name}". Please choose another name.')
         path = os.path.join(SCHEDULES_DIR, f"{name} ({copy}){EXTENSION}")
         copy += 1
 

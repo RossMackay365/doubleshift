@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { GripVertical } from 'lucide-react';
 import { useSchedule } from '@/components/ScheduleProvider';
-import { REWARDS, MIN_SOLVE_SECONDS, MAX_SOLVE_SECONDS, courtsNamed, isRewardActive, rankedRewards, unavailableReason } from '@/lib/settings';
+import { REWARDS, SOLVE_TIME_OPTIONS, spacesNamed, isRewardActive, rankedRewards, unavailableReason } from '@/lib/settings';
 import { RewardSetting, ScheduleData, ScheduleSettings } from '@/lib/types';
 
 // The open schedule's Scheduler Settings. Changes go into the schedule's working copy
@@ -15,64 +15,86 @@ export default function SettingsPage() {
     <div className="max-w-3xl">
       <h1 className="text-2xl font-semibold text-gray-900">Scheduler Settings</h1>
 
-      <Section title="General Settings">
+      <div className="mt-6">
         <SettingRow
           name="Max Solve Time"
-          description="How long the scheduler keeps searching for a better schedule before stopping with the best one it has found."
+          description="How long the scheduler looks for a better schedule. When the time is up, it gives you the best one it found. It stops sooner if it finds the best possible schedule."
         >
-          <SolveTimeInput seconds={settings.maxSolveSeconds} onChange={maxSolveSeconds => update({ maxSolveSeconds })} />
+          <select
+            value={settings.maxSolveSeconds}
+            onChange={e => update({ maxSolveSeconds: Number(e.target.value) })}
+            aria-label="Max Solve Time"
+            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-800 focus:border-blue-500 focus:outline-none"
+          >
+            {SOLVE_TIME_OPTIONS.map(o => <option key={o.seconds} value={o.seconds}>{o.label}</option>)}
+          </select>
         </SettingRow>
-        <SettingRow
-          name="Assign Trainers to Groups"
-          description="On: you choose which groups each trainer coaches, and the scheduler only picks times and courts. Off: the scheduler allocates trainers to groups based on their levels."
-        >
-          <Switch checked={settings.assignTrainers} onChange={assignTrainers => update({ assignTrainers })} />
-        </SettingRow>
-        <SettingRow
-          name="Gendered Teams"
-          description="On: groups are female or male, and trainers have a separate level for each. Off: all groups and trainers share one set of levels."
-        >
-          <Switch checked={settings.genderedTeams} onChange={genderedTeams => update({ genderedTeams })} />
-        </SettingRow>
-        <SettingRow
-          name="Court-specific Timeslots"
-          description="On: each timeslot lists the courts it runs on, so courts at the same location can have different times. Off: timeslots apply to whole locations."
-        >
-          <Switch checked={settings.courtTimeslots} onChange={courtTimeslots => update({ courtTimeslots })} />
-        </SettingRow>
-        <SettingRow
-          name="Name Courts"
-          description={settings.courtTimeslots
-            ? 'Courts are named on the Locations tab. Always on, and every court needs a name, while Court-specific Timeslots is on.'
-            : 'On: name each court on the Locations tab (names only need to be unique within a location). Off: courts are numbered.'}
-        >
-          <Switch
-            checked={courtsNamed(settings)}
-            disabled={settings.courtTimeslots}
-            onChange={nameCourts => update({ nameCourts })}
-          />
-        </SettingRow>
-      </Section>
+      </div>
 
-      <Section title="Reward Settings">
+      <Section
+        title="Rewards"
+        intro="Every schedule follows your data. Rewards tell the scheduler which of those schedules you prefer."
+      >
         <SettingRow
           name="Reward Mode"
-          description={settings.rewardMode === 'points'
-            ? 'Points: each reward adds its points every time it is achieved, and the schedule with the highest total wins.'
-            : 'Hierarchical: rewards are optimised one at a time in priority order, so a higher reward is never given up for a lower one. Drag rewards to reorder them.'}
+          description={'Priority Order: The scheduler works through your rewards from the top. It never gives up a higher reward to improve a lower one.\n'
+            + 'Points: Each reward adds its points every time the schedule achieves it, and a penalty takes its points away each time it happens. The schedule with the most points wins.'}
         >
           <ModeToggle mode={settings.rewardMode} onChange={rewardMode => update({ rewardMode })} />
         </SettingRow>
         <RewardList settings={settings} data={data} onChange={rewards => update({ rewards })} />
       </Section>
+
+      <Section title="Groups and Trainers">
+        <SettingRow
+          name="Gendered Groups"
+          description={'On: Each group is female or male, and trainers have a level for each.\nOff: All groups and trainers share one set of levels.'}
+        >
+          <Switch checked={settings.genderedTeams} onChange={genderedTeams => update({ genderedTeams })} />
+        </SettingRow>
+        <SettingRow
+          name="Assign Trainers to Groups"
+          description={'On: You choose which groups each trainer trains, and the scheduler picks the times and spaces.\nOff: The scheduler also chooses the trainers, using their levels.'}
+        >
+          <Switch checked={settings.assignTrainers} onChange={assignTrainers => update({ assignTrainers })} />
+        </SettingRow>
+        <SettingRow
+          name="Group Rules"
+          description={"On: The Data page gets a Group Rules tab, where you can let members of some groups attend other groups' sessions. Each rule is either required, or preferred and scored by the Group Rules reward above.\nOff: Sessions are scheduled without group rules."}
+        >
+          <Switch checked={settings.groupRules} onChange={groupRules => update({ groupRules })} />
+        </SettingRow>
+      </Section>
+
+      <Section title="Locations and Timeslots">
+        <SettingRow
+          name="Name Spaces"
+          description={settings.spaceTimeslots
+            ? 'Always on while Space-Specific Timeslots is on. Give every space a name on the Locations tab.'
+            : 'On: You name each space on the Locations tab, such as Hall A or Pool 2. Two spaces at one location need different names.\nOff: Spaces are numbered.'}
+        >
+          <Switch
+            checked={spacesNamed(settings)}
+            disabled={settings.spaceTimeslots}
+            onChange={nameSpaces => update({ nameSpaces })}
+          />
+        </SettingRow>
+        <SettingRow
+          name="Space-Specific Timeslots"
+          description={'On: You choose the spaces each timeslot runs in, so spaces at one location can have different times.\nOff: You choose the locations each timeslot runs at.'}
+        >
+          <Switch checked={settings.spaceTimeslots} onChange={spaceTimeslots => update({ spaceTimeslots })} />
+        </SettingRow>
+      </Section>
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, intro, children }: { title: string; intro?: string; children: React.ReactNode }) {
   return (
     <section className="mt-8 border-t border-gray-200 pt-6">
       <h2 className="mb-2 text-lg font-semibold text-gray-800">{title}</h2>
+      {intro && <p className="mb-2 max-w-lg text-sm text-gray-500">{intro}</p>}
       <div className="divide-y divide-gray-100">{children}</div>
     </section>
   );
@@ -85,7 +107,7 @@ function SettingRow({ name, description, children }: { name: string; description
         <span className="font-medium text-gray-800">{name}</span>
         <div className="shrink-0">{children}</div>
       </div>
-      <p className="mt-1 max-w-lg text-sm text-gray-500">{description}</p>
+      <p className="mt-1 max-w-lg whitespace-pre-line text-sm text-gray-500">{description}</p>
     </div>
   );
 }
@@ -106,32 +128,9 @@ function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (
   );
 }
 
-// Minutes and seconds. Out-of-range values are allowed while typing and pulled back
-// into range when the field loses focus.
-function SolveTimeInput({ seconds, onChange }: { seconds: number; onChange: (seconds: number) => void }) {
-  const minutes = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  const clamp = () => onChange(Math.min(MAX_SOLVE_SECONDS, Math.max(MIN_SOLVE_SECONDS, seconds)));
-  const field = 'w-16 rounded-md border border-gray-300 px-2 py-1.5 text-right focus:border-blue-500 focus:outline-none';
-  return (
-    <div className="flex items-center gap-1.5 text-sm text-gray-600">
-      <input
-        type="number" min={0} max={60} value={minutes} className={field} onBlur={clamp}
-        onChange={e => onChange(Math.max(0, Number(e.target.value) || 0) * 60 + secs)}
-      />
-      min
-      <input
-        type="number" min={0} max={59} value={secs} className={`${field} ml-2`} onBlur={clamp}
-        onChange={e => onChange(minutes * 60 + Math.min(59, Math.max(0, Number(e.target.value) || 0)))}
-      />
-      sec
-    </div>
-  );
-}
-
 function ModeToggle({ mode, onChange }: { mode: ScheduleSettings['rewardMode']; onChange: (mode: ScheduleSettings['rewardMode']) => void }) {
   const options = [
-    { value: 'hierarchical', label: 'Hierarchical' },
+    { value: 'hierarchical', label: 'Priority Order' },
     { value: 'points', label: 'Points' },
   ] as const;
   return (
@@ -151,7 +150,7 @@ function ModeToggle({ mode, onChange }: { mode: ScheduleSettings['rewardMode']; 
   );
 }
 
-// Rewards that count are listed first (in priority order for hierarchical mode, where
+// Rewards that count are listed first (in priority order for Priority Order mode, where
 // they can be dragged to reorder). Then, greyed out: rewards switched off ("Off"), and
 // rewards that can't apply with the current settings ("Unavailable").
 function RewardList({ settings, data, onChange }: {
@@ -219,7 +218,7 @@ function RewardList({ settings, data, onChange }: {
           <div className="flex items-center gap-2">
             <span className="font-medium text-gray-800">{def.label}</span>
             {def.isPenalty && (
-              <span className="rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-600">Penalty</span>
+              <span title="In Points mode, these points are taken away each time it happens" className="rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-600">Penalty</span>
             )}
             {reason && (
               <span className="rounded bg-gray-200 px-1.5 py-0.5 text-xs font-medium text-gray-600">{reason}</span>
@@ -270,12 +269,14 @@ function RewardList({ settings, data, onChange }: {
     <div className="pt-2">
       {active.length > 0 && group(
         'In Use',
-        hierarchical ? 'Optimised in this order, top first. Drag to reorder.' : 'Each adds its points every time it is achieved.',
+        hierarchical
+          ? 'The scheduler works through these from the top. Drag one to move it.'
+          : 'Each reward adds its points every time the schedule achieves it. A penalty takes its points away instead.',
         active.map((r, i) => row(r, i + 1)),
         true,
       )}
-      {off.length > 0 && group('Off', 'Switched off. Switch one on to add it to the bottom of the list above.', off.map(r => row(r, null)), false)}
-      {unavailable.length > 0 && group('Unavailable', "These rewards can't apply with the current settings or data.", unavailable.map(r => row(r, null)), false)}
+      {off.length > 0 && group('Off', 'Switch one on to add it to the bottom of the list above.', off.map(r => row(r, null)), false)}
+      {unavailable.length > 0 && group('Unavailable', "These need a setting or data that this schedule doesn't have yet.", unavailable.map(r => row(r, null)), false)}
     </div>
   );
 }

@@ -37,11 +37,12 @@ async def solve(request: SolveRequest, background_tasks: BackgroundTasks):
     raw_data = {
         "groups":         [g.model_dump() for g in request.groups],
         "trainers":       [t.model_dump() for t in request.trainers],
-        "courts":         [c.model_dump() for c in request.courts],
+        "spaces":         [c.model_dump() for c in request.spaces],
         "timeslots":      [s.model_dump() for s in request.timeslots],
         "travel_times":   [tt.model_dump() for tt in request.travel_times],
         "location_names": request.location_names,
         "assign_trainers": request.assign_trainers,
+        "group_rules":    [r.model_dump() for r in request.group_rules],
         "rewards_cfg":    request.reward_config,
         "max_solve_seconds": request.max_solve_seconds,
         "reward_mode":       request.reward_mode,
@@ -57,9 +58,9 @@ async def solve(request: SolveRequest, background_tasks: BackgroundTasks):
 async def cancel(job_id: str):
     job = get_job(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=404, detail="This run is no longer available. Please run the scheduler again.")
 
-    # Already finished — nothing to stop; report the terminal state as-is.
+    # Already finished: nothing to stop; report the terminal state as-is.
     if job["status"] in ("completed", "failed", "cancelled"):
         return {"job_id": job_id, "status": job["status"], "message": "Job already finished"}
 
@@ -77,7 +78,7 @@ async def cancel(job_id: str):
 async def get_status(job_id: str):
     job_data = get_job(job_id)
     if not job_data:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=404, detail="This run is no longer available. Please run the scheduler again.")
 
     return {"job_id": job_id, **job_data}
 
@@ -87,16 +88,17 @@ async def verify(request: VerifyRequest):
     raw_data = {
         "groups":         [g.model_dump() for g in request.groups],
         "trainers":       [t.model_dump() for t in request.trainers],
-        "courts":         [c.model_dump() for c in request.courts],
+        "spaces":         [c.model_dump() for c in request.spaces],
         "timeslots":      [s.model_dump() for s in request.timeslots],
         "travel_times":   [tt.model_dump() for tt in request.travel_times],
         "location_names": request.location_names,
         "assign_trainers": request.assign_trainers,
+        "group_rules":    [r.model_dump() for r in request.group_rules],
     }
 
     schedule_entries = [e.model_dump() for e in request.schedule]
 
-    # Verify only checks feasibility and computes the schedule's score — it needs
+    # Verify only checks feasibility and computes the schedule's score: it needs
     # no job state. The optimality gap is derived on the frontend, which already
     # holds the solver's best_bound from the run.
     try:
@@ -146,7 +148,7 @@ def get_schedule(path: str):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     if not schedule:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+        raise HTTPException(status_code=404, detail="This schedule could not be found.")
     return schedule
 
 

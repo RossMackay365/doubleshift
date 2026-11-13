@@ -27,9 +27,9 @@ def _calculate_qualifications(trainers: list[dict], groups: list[dict], assign_t
             gender = str(g.get("gender", "")).strip().lower()
 
             if gender == "female":
-                qualified = t["ladiesRank"] != 0 and t["ladiesRank"] <= group_level
+                qualified = t["femaleLevel"] != 0 and t["femaleLevel"] <= group_level
             elif gender == "male":
-                qualified = t["gentsRank"] != 0 and t["gentsRank"] <= group_level
+                qualified = t["maleLevel"] != 0 and t["maleLevel"] <= group_level
             else:
                 qualified = False
 
@@ -74,9 +74,9 @@ def transform_data(raw_data: dict) -> dict:
     Input shape:
     {
         "groups":    [{"groupID", "name", "level", "gender", "availability_bitmask"}, ...],
-        "trainers":  [{"trainerID", "groupID", "name", "ladiesRank", "gentsRank", "capacity",
+        "trainers":  [{"trainerID", "groupID", "name", "femaleLevel", "maleLevel", "capacity",
                        "availability_bitmask", "assigned_groups"}, ...],
-        "courts":    [{"courtName", "location"}, ...],
+        "spaces":    [{"spaceName", "location"}, ...],
         "timeslots": [{"id", "day", "start", "finish"}, ...],
     }
 
@@ -86,7 +86,7 @@ def transform_data(raw_data: dict) -> dict:
             "t": {str(trainerID): trainer_index, ...},
             "g": {str(groupID):   group_index, ...},
             "s": {str(id):        slot_index, ...},
-            "c": {str(courtName): court_index, ...},
+            "c": {str(spaceName): space_index, ...},
         },
         "members":  {group_index: [str(trainerID), ...], ...},
         "quals":    [[1/0, ...], ...],          # [trainer_i][group_i]
@@ -101,18 +101,18 @@ def transform_data(raw_data: dict) -> dict:
     trainers  = raw_data["trainers"]
     groups    = raw_data["groups"]
     timeslots = raw_data["timeslots"]
-    courts    = raw_data["courts"]
+    spaces    = raw_data["spaces"]
 
     num_slots = len(timeslots)
 
     if num_slots == 0:
-        raise ValueError("Timeslots list is empty.")
+        raise ValueError("Add at least one timeslot before you run the scheduler.")
     if not groups:
-        raise ValueError("Groups list is empty.")
+        raise ValueError("Add at least one group before you run the scheduler.")
     if not trainers:
-        raise ValueError("Trainers list is empty.")
-    if not courts:
-        raise ValueError("Courts list is empty.")
+        raise ValueError("Add at least one trainer before you run the scheduler.")
+    if not spaces:
+        raise ValueError("Add at least one location before you run the scheduler.")
 
     _validate_availability_lengths(trainers, num_slots, "Trainer")
     _validate_availability_lengths(groups,   num_slots, "Group")
@@ -121,7 +121,7 @@ def transform_data(raw_data: dict) -> dict:
     t_idx = {str(t["trainerID"]): i for i, t in enumerate(trainers)}
     g_idx = {str(g["groupID"]):   i for i, g in enumerate(groups)}
     s_idx = {str(s["id"]):        i for i, s in enumerate(timeslots)}
-    c_idx = {str(c["courtName"]): i for i, c in enumerate(courts)}
+    c_idx = {str(c["spaceName"]): i for i, c in enumerate(spaces)}
 
     for t in trainers:
         gid = str(t.get("groupID", ""))
@@ -145,10 +145,10 @@ def transform_data(raw_data: dict) -> dict:
     group_avail   = [g["availability_bitmask"] for g in groups]
     capacity      = [max(1, int(t.get("capacity", 1))) for t in trainers]
 
-    # court index → venue name
-    court_venue = {i: c.get("location", "") for i, c in enumerate(courts)}
+    # space index -> venue name
+    space_venue = {i: c.get("location", "") for i, c in enumerate(spaces)}
 
-    # (venue_a, venue_b) → travel minutes (symmetric)
+    # (venue_a, venue_b) -> travel minutes (symmetric)
     travel_minutes: dict[tuple, int] = {}
     for tt in raw_data.get("travel_times", []):
         v1 = tt.get("from_venue", "")
@@ -158,6 +158,18 @@ def transform_data(raw_data: dict) -> dict:
             travel_minutes[(v1, v2)] = mins
             travel_minutes[(v2, v1)] = mins
 
+    # Group rules as (own group, group to avoid conflicts with, required) index triples,
+    # each direction once (required if any rule requires it). Direction matters: the minutes
+    # counted are those of the other group's session that the own group would miss.
+    rule_pairs: dict = {}
+    for rule in raw_data.get("group_rules", []):
+        for a in rule.get("groups", []):
+            for b in rule.get("against", []):
+                if a in g_idx and b in g_idx and a != b:
+                    pair = (g_idx[a], g_idx[b])
+                    rule_pairs[pair] = rule_pairs.get(pair, False) or bool(rule.get("required"))
+    group_rule_pairs = [(own, other, required) for (own, other), required in rule_pairs.items()]
+
     location_names  = raw_data.get("location_names", [])
     location_to_idx = {name: i for i, name in enumerate(location_names)}
 
@@ -166,12 +178,13 @@ def transform_data(raw_data: dict) -> dict:
         "members":  members_in_group,
         "quals":    quals,
         "assign_trainers": assign_trainers,
+        "group_rule_pairs": group_rule_pairs,
         "capacity": capacity,
         "availability": {
             "trainers": trainer_avail,
             "groups":   group_avail,
         },
-        "court_venue":     court_venue,
+        "space_venue":     space_venue,
         "travel_minutes":  travel_minutes,
         "location_to_idx": location_to_idx,
         "raw": raw_data,

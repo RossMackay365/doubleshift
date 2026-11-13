@@ -1,5 +1,5 @@
 from ortools.sat.python import cp_model
-from .constraints import apply_constraints, is_penalty, slot_allows_court
+from .constraints import apply_constraints, is_penalty, slot_allows_space
 from .transform import transform_data
 from .diagnostics import diagnose_infeasibility
 from .state import update_job, get_job, register_process, unregister_process
@@ -43,7 +43,7 @@ class SchedulerCallback(cp_model.CpSolverSolutionCallback):
                 current_schedule.append({
                     "group":    self._data["raw"]["groups"][g_i]["name"],
                     "trainer":  self._data["raw"]["trainers"][t_i]["name"],
-                    "court":    self._data["raw"]["courts"][c_i]["courtName"],
+                    "space":    self._data["raw"]["spaces"][c_i]["spaceName"],
                     "timeslot": self._data["raw"]["timeslots"][s_i]["id"],
                 })
 
@@ -85,7 +85,7 @@ def build_and_solve(data: dict, progress_queue):
 
     trainer_keys = list(data["indices"]["t"].keys())
 
-    court_venue     = data.get("court_venue", {})
+    space_venue     = data.get("space_venue", {})
     location_to_idx = data.get("location_to_idx", {})
 
     x = {}
@@ -98,9 +98,9 @@ def build_and_solve(data: dict, progress_queue):
             if trainer_id in data["members"].get(g, []):
                 continue
             for c in range(num_c):
-                venue   = court_venue.get(c, "")
+                venue   = space_venue.get(c, "")
                 loc_idx = location_to_idx.get(venue)
-                # Skip if this group is not allowed at this court's location
+                # Skip if this group is not allowed at this space's location
                 if loc_idx is not None and group_loc_bitmask:
                     if loc_idx < len(group_loc_bitmask) and group_loc_bitmask[loc_idx] == 0:
                         continue
@@ -108,15 +108,15 @@ def build_and_solve(data: dict, progress_queue):
                     if not (data["availability"]["trainers"][t][s] and
                             data["availability"]["groups"][g][s]):
                         continue
-                    # Skip if this timeslot doesn't run on this court (or its location)
-                    if not slot_allows_court(data["raw"]["timeslots"][s], data["raw"]["courts"][c], location_to_idx):
+                    # Skip if this timeslot doesn't run on this space (or its location)
+                    if not slot_allows_space(data["raw"]["timeslots"][s], data["raw"]["spaces"][c], location_to_idx):
                         continue
 
                     x[g, t, c, s] = model.NewBoolVar(f"x_g{g}_t{t}_c{c}_s{s}")
 
     if not x:
         logger.warning(
-            "No valid (group, trainer, court, slot) combinations found. "
+            "No valid (group, trainer, space, slot) combinations found. "
             "Check availability and qualification data.",
         )
 
@@ -251,10 +251,11 @@ def _solve_worker(job_id: str, raw_data: dict, progress_queue):
         elif status == cp_model.INFEASIBLE:
             issues = diagnose_infeasibility(data)
             error = (
-                "No feasible schedule exists with the current data."
+                "The scheduler couldn't find a schedule that fits your data."
                 if issues
-                else "No feasible schedule exists. Trainer/slot conflicts across "
-                     "groups are likely — try adding trainers or relaxing availability."
+                else "The scheduler couldn't find a schedule that fits your data. Your trainers "
+                     "are probably needed in too many places at once. Try adding trainers, or "
+                     "giving trainers and groups more availability."
             )
             progress_queue.put({
                 "type":   "final",
@@ -267,8 +268,8 @@ def _solve_worker(job_id: str, raw_data: dict, progress_queue):
                 "status": "failed",
                 "stats":  {
                     "error": (
-                        "Solver timed out before finding a solution. Try increasing "
-                        "Max Solve Time in Scheduler Settings, or reducing the problem size."
+                        "The scheduler ran out of time before it found a schedule. Give it "
+                        "more time with Max Solve Time in Scheduler Settings."
                     ),
                     "stopped_reason": "time_limit",
                 },
@@ -277,7 +278,7 @@ def _solve_worker(job_id: str, raw_data: dict, progress_queue):
             progress_queue.put({
                 "type":   "final",
                 "status": "failed",
-                "stats":  {"error": "Solver could not process the model (invalid).",
+                "stats":  {"error": "Something went wrong while preparing your schedule. Please check your data and try again.",
                            "stopped_reason": "error"},
             })
 
@@ -291,7 +292,7 @@ def _solve_worker(job_id: str, raw_data: dict, progress_queue):
         logger.exception("Job %s failed unexpectedly in solver worker.", job_id)
         progress_queue.put({
             "type": "final", "status": "failed",
-            "stats": {"error": "Internal error.", "stopped_reason": "error"},
+            "stats": {"error": "Something went wrong. Please try again.", "stopped_reason": "error"},
         })
 
 
@@ -325,7 +326,7 @@ def run_solve_task(job_id: str, raw_data: dict):
             try:
                 msg = progress_queue.get(timeout=1.0)
             except queue_mod.Empty:
-                # No message this second — stop once the child is gone.
+                # No message this second: stop once the child is gone.
                 if not proc.is_alive():
                     break
                 continue
@@ -354,15 +355,14 @@ def run_solve_task(job_id: str, raw_data: dict):
         unregister_process(job_id)
 
     # Child died without reporting a terminal outcome (e.g. killed by OOM) and
-    # the job wasn't cancelled — surface it rather than leaving it "solving".
+    # the job wasn't cancelled: surface it rather than leaving it "solving".
     if not final_seen:
         job = get_job(job_id)
         if job and job["status"] not in ("cancelled", "completed", "failed"):
             update_job(
                 job_id,
                 status="failed",
-                stats={"error": ("The solver stopped unexpectedly — it likely ran out of "
-                                 "memory. Try reducing the problem size or lowering "
-                                 "SOLVER_WORKERS."),
+                stats={"error": ("The scheduler stopped unexpectedly. It may have run out of "
+                                 "memory. Try again with fewer groups or timeslots."),
                        "stopped_reason": "error"},
             )

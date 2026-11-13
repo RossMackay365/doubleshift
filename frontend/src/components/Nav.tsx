@@ -1,16 +1,27 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CheckCircle, House, Loader2, Play, Save, Settings, Table2 } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle, CircleHelp, House, Loader2, Play, Save, Settings, Table2 } from 'lucide-react';
+import Guide from '@/components/Guide';
 import { useSchedule } from '@/components/ScheduleProvider';
 
 // Header for an open schedule: its name (with an unsaved-changes dot), the Data /
-// Scheduler tabs, Save, Settings and Home. Status indicators never change the width of the
+// Scheduler tabs, Save, Settings, Guide and Home. Status indicators never change the width of the
 // buttons, so nothing on the right shifts.
+// The guide section for each page, so the guide opens at the help for the page you're on.
+const GUIDE_SECTIONS: Record<string, string> = {
+  '/data': 'data',
+  '/run': 'results',
+  '/settings': 'settings',
+};
+
 export default function Nav() {
   const path = usePathname();
   const { path: filePath, name, isModified, save, running } = useSchedule();
   const query = `?file=${encodeURIComponent(filePath)}`;
+  const [showGuide, setShowGuide] = useState(false);
+  const guideSection = Object.entries(GUIDE_SECTIONS).find(([href]) => path.startsWith(href))?.[1];
 
   const links = [
     { href: '/data', label: 'Data', icon: <Table2 size={20} /> },
@@ -38,7 +49,7 @@ export default function Nav() {
           {isModified && (
             <span className="flex shrink-0 items-center gap-1.5 text-sm font-medium text-amber-600">
               <span className="inline-block h-2 w-2 rounded-full bg-amber-400" />
-              Unsaved changes
+              Unsaved Changes
             </span>
           )}
         </div>
@@ -63,6 +74,13 @@ export default function Nav() {
           <Link href={'/settings' + query} title="Scheduler Settings" className={`${tabClass('/settings')} px-3`}>
             <Settings size={20} />
           </Link>
+          <button
+            onClick={() => setShowGuide(true)}
+            title="Guide"
+            className="rounded-md px-3 py-3 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
+          >
+            <CircleHelp size={20} />
+          </button>
           <Link
             href="/"
             title="Home"
@@ -72,6 +90,7 @@ export default function Nav() {
           </Link>
         </div>
       </div>
+      {showGuide && <Guide section={guideSection} onClose={() => setShowGuide(false)} />}
     </nav>
   );
 }

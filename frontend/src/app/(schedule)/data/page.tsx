@@ -3,46 +3,71 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Trash2 } from 'lucide-react';
 import EditableTable, { Column } from '@/components/EditableTable';
 import { useSchedule } from '@/components/ScheduleProvider';
-import { courtsNamed, levelsInUse, timeslotClashes } from '@/lib/settings';
-import { Court, Location, ScheduleData, TravelTime, expandLocations, sortDays, toMinutes } from '@/lib/types';
+import { spacesNamed, levelsInUse, timeslotClashes } from '@/lib/settings';
+import { Space, Location, ScheduleData, TravelTime, expandLocations, sortDays, toMinutes } from '@/lib/types';
 
-type Tab = 'locations' | 'timeslots' | 'groups' | 'trainers';
+type Tab = 'locations' | 'timeslots' | 'groups' | 'trainers' | 'groupRules';
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'locations', label: 'Locations' },
-  { id: 'timeslots', label: 'Timeslots' },
-  { id: 'groups',    label: 'Groups' },
-  { id: 'trainers',  label: 'Trainers' },
+// The tabs in the order to fill them in, each with a line saying what it is for.
+const TABS: { id: Tab; label: string; intro: string }[] = [
+  {
+    id: 'locations', label: 'Locations',
+    intro: 'Where sessions take place, and how many spaces each location has, such as halls, pitches, pools or rooms. A space holds one session at a time.',
+  },
+  {
+    id: 'timeslots', label: 'Timeslots',
+    intro: 'The days and times when sessions can take place. Each group gets one session in one of these timeslots.',
+  },
+  {
+    id: 'groups', label: 'Groups',
+    intro: "The groups that need a session. Switch off any timeslots or locations a group can't make.",
+  },
+  {
+    id: 'trainers', label: 'Trainers',
+    intro: "The people who train your groups. Switch off any timeslots a trainer can't make.",
+  },
+  {
+    id: 'groupRules', label: 'Group Rules', // only with the Group Rules setting
+    intro: "Let members of some groups attend other groups' sessions. The scheduler keeps those sessions from overlapping.",
+  },
 ];
 
 const BASE_COLUMNS: Record<Tab, Column[]> = {
   locations: [
     { key: 'name',   header: 'Location Name', placeholder: 'Location' },
-    { key: 'courts', header: 'Courts', type: 'number', placeholder: '1', width: '80px' },
+    { key: 'spaces', header: 'Spaces', type: 'number', placeholder: '1', width: '110px', hint: 'How many sessions can run here at the same time.' },
   ],
   timeslots: [
     { key: 'day',    header: 'Day',    placeholder: 'Monday' },
-    { key: 'start',  header: 'Start',  placeholder: '09:00' },
+    { key: 'start',  header: 'Start',  placeholder: '09:00', hint: 'Use 24-hour time, such as 18:30.' },
     { key: 'finish', header: 'Finish', placeholder: '10:00' },
   ],
   groups: [
     { key: 'name',   header: 'Name',   placeholder: 'Beginners', width: '200px' },
-    { key: 'level',  header: 'Level',  type: 'number', placeholder: '1', width: '70px' },
+    {
+      key: 'level', header: 'Level', type: 'number', placeholder: '1', width: '100px',
+      hint: "How advanced the group is. 1 is the most advanced. A trainer can train a group at their own level or a less advanced one.",
+    },
     { key: 'gender', header: 'Gender', type: 'select', options: ['female', 'male'], width: '120px' },
   ],
   trainers: [
-    { key: 'name',       header: 'Name',         placeholder: 'Alice Coach', width: '200px' },
-    { key: 'capacity',   header: 'Capacity',      type: 'number', placeholder: '1', width: '70px' },
+    { key: 'name',       header: 'Name',         placeholder: 'Sam Taylor', width: '200px' },
+    { key: 'capacity',   header: 'Capacity',      type: 'number', placeholder: '1', width: '120px', hint: 'The most groups this trainer can train.' },
   ],
+  groupRules: [], // built in the page, from the current groups
 };
 
 // Trainer level columns: one per gender, or a single Level (stored as the female
-// level) when teams aren't gendered. Hidden when trainers are assigned to groups.
+// level) when groups aren't gendered. Hidden when trainers are assigned to groups.
+const LEVEL_HINT = 'The most advanced group this trainer can train. With level 2 they can train groups at level 2, 3, 4 and so on, but not level 1.';
 const GENDERED_LEVEL_COLUMNS: Column[] = [
-  { key: 'ladiesRank', header: 'Female Level', type: 'number', placeholder: '0', width: '90px' },
-  { key: 'gentsRank',  header: 'Male Level',   type: 'number', placeholder: '0', width: '90px' },
+  { key: 'femaleLevel', header: 'Female Level', type: 'number', placeholder: '1', width: '150px', hint: `${LEVEL_HINT} Enter 0 if they only train male groups.` },
+  { key: 'maleLevel',   header: 'Male Level',   type: 'number', placeholder: '1', width: '140px', hint: `${LEVEL_HINT} Enter 0 if they only train female groups.` },
 ];
-const SINGLE_LEVEL_COLUMN: Column = { key: 'ladiesRank', header: 'Level', type: 'number', placeholder: '0', width: '90px' };
+const SINGLE_LEVEL_COLUMN: Column = {
+  key: 'femaleLevel', header: 'Level', type: 'number', placeholder: '1', width: '100px',
+  hint: `${LEVEL_HINT} Enter 0 to keep them in your list without giving them any groups to train.`,
+};
 
 type RowMap = Record<Tab, Record<string, string>[]>;
 
@@ -54,7 +79,7 @@ function parseBitmask(s: string): number[] {
   return s.split('').map(v => (parseInt(v, 10) || 0));
 }
 
-// Training Groups and timeslot Courts are stored in a row as a JSON list of names
+// Training Groups and timeslot Spaces are stored in a row as a JSON list of names
 // ('' = an empty Training Group slot).
 function parseList(value: string): string[] {
   try {
@@ -69,6 +94,13 @@ function capacityOf(row: Record<string, string>): number {
   return Math.max(1, parseInt(row.capacity, 10) || 1);
 }
 
+// A trainer's level as typed. Left empty, it is 1, so a new trainer can train any group;
+// 0 has to be entered on purpose.
+function trainerLevel(value: string): number {
+  const level = parseInt(value, 10);
+  return Number.isNaN(level) ? 1 : level;
+}
+
 function toGender(v: string): 'female' | 'male' {
   return (v ?? '').trim().toLowerCase() === 'male' ? 'male' : 'female';
 }
@@ -76,13 +108,13 @@ function toGender(v: string): 'female' | 'male' {
 function dataToRows(data: ScheduleData): RowMap {
   return {
     locations: (data.locations ?? []).map(l => ({
-      name: l.name, courts: String(l.courts),
-      courtNames: JSON.stringify(l.courtNames ?? []),
+      name: l.name, spaces: String(l.spaces),
+      spaceNames: JSON.stringify(l.spaceNames ?? []),
     })),
     timeslots: data.timeslots.map(t => ({
       day: t.day, start: t.start, finish: t.finish,
       location_bitmask: t.location_bitmask?.join(',') ?? '',
-      courts: JSON.stringify(t.courts ?? []),
+      spaces: JSON.stringify(t.spaces ?? []),
     })),
     groups: data.groups.map(g => ({
       name: g.name, level: String(g.level),
@@ -92,26 +124,52 @@ function dataToRows(data: ScheduleData): RowMap {
     })),
     trainers: data.trainers.map(t => ({
       name: t.name, groupID: t.groupID,
-      ladiesRank: String(t.ladiesRank), gentsRank: String(t.gentsRank),
+      femaleLevel: String(t.femaleLevel ?? 1), maleLevel: String(t.maleLevel ?? 1),
       capacity: String(t.capacity ?? 1),
       trainingGroups: JSON.stringify(t.trainingGroups ?? []),
       availability_bitmask: t.availability_bitmask.join(','),
     })),
+    groupRules: (data.groupRules ?? []).map(r => ({
+      groups: JSON.stringify(r.groups), against: JSON.stringify(r.against), required: r.required ? '1' : '0',
+    })),
   };
 }
 
-// Locations from the Locations tab rows. Court names are kept by position (blank = unnamed).
+// Locations from the Locations tab rows. Space names are kept by position (blank = unnamed).
 function rowsToLocations(locationRows: Record<string, string>[]): Location[] {
   return locationRows.filter(r => r.name).map(r => {
-    const courts = Math.max(1, parseInt(r.courts, 10) || 1);
-    const courtNames = parseList(r.courtNames).slice(0, courts);
-    return { name: r.name, courts, courtNames: courtNames.some(n => n.trim()) ? courtNames : undefined };
+    const spaces = Math.max(1, parseInt(r.spaces, 10) || 1);
+    const spaceNames = parseList(r.spaceNames).slice(0, spaces);
+    return { name: r.name, spaces, spaceNames: spaceNames.some(n => n.trim()) ? spaceNames : undefined };
   });
 }
 
-// The court identities ("<location> <name or number>") of one Locations tab row.
-function courtIdsOf(locationRow: Record<string, string>): string[] {
-  return expandLocations(rowsToLocations([locationRow])).map(c => c.courtName);
+// The space identities ("<location> <name or number>") of one Locations tab row.
+function spaceIdsOf(locationRow: Record<string, string>): string[] {
+  return expandLocations(rowsToLocations([locationRow])).map(c => c.spaceName);
+}
+
+// Group names pasted as a comma-separated list: matched to existing groups (ignoring case),
+// without repeats or any of `exclude`.
+function pastedGroupNames(raw: string, groupNames: string[], exclude: string[] = []): string[] {
+  const names = (raw ?? '').split(',')
+    .map(text => groupNames.find(g => g.toLowerCase() === text.trim().toLowerCase()))
+    .filter((name): name is string => !!name && !exclude.includes(name));
+  return [...new Set(names)];
+}
+
+// Carries renames over to references. refs[i] is the name references to item i currently
+// use and names[i] its new name; renamed collects old -> new. An item whose new name is
+// blank or shared with another item keeps its old reference until its name is unique
+// again (e.g. typing "Men 10" next to "Men 1"), so two items' references never merge.
+function carryRenames(refs: string[], names: string[], renamed: Map<string, string>): string[] {
+  return names.map((name, i) => {
+    const old = refs[i];
+    if (old === undefined) return name;                                            // just added
+    if (!name.trim() || names.indexOf(name) !== names.lastIndexOf(name)) return old;
+    if (old !== name) renamed.set(old, name);
+    return name;
+  });
 }
 
 function rowsToData(rows: RowMap): Omit<ScheduleData, 'travelTimes'> {
@@ -130,16 +188,17 @@ function rowsToData(rows: RowMap): Omit<ScheduleData, 'travelTimes'> {
   };
 
   const locations = rowsToLocations(rows.locations);
-  // Court names that no longer exist (e.g. after renaming a location) are dropped, so a
-  // timeslot never silently runs on no court at all.
-  const courtNames = new Set(expandLocations(locations).map(c => c.courtName));
+  // Space names that no longer exist (e.g. after renaming a location) are dropped, so a
+  // timeslot never silently runs on no space at all.
+  const spaceNames = new Set(expandLocations(locations).map(c => c.spaceName));
+  const groupNames = new Set(rows.groups.map(r => r.name).filter(Boolean));
 
   return {
     locations,
     timeslots: rows.timeslots.filter(r => r.day).map(r => ({
       day: r.day, start: r.start, finish: r.finish,
       location_bitmask: parseLocBitmask(r.location_bitmask),
-      courts: parseList(r.courts).filter(name => courtNames.has(name)),
+      spaces: parseList(r.spaces).filter(name => spaceNames.has(name)),
     })),
     groups: rows.groups.filter(r => r.name).map(r => ({
       name: r.name, level: parseInt(r.level, 10) || 1,
@@ -149,26 +208,36 @@ function rowsToData(rows: RowMap): Omit<ScheduleData, 'travelTimes'> {
     })),
     trainers: rows.trainers.filter(r => r.name).map(r => ({
       name: r.name, groupID: r.groupID ?? '',
-      ladiesRank: parseInt(r.ladiesRank, 10) || 0,
-      gentsRank: parseInt(r.gentsRank, 10) || 0,
+      femaleLevel: trainerLevel(r.femaleLevel),
+      maleLevel: trainerLevel(r.maleLevel),
       capacity: capacityOf(r),
       // Only the slots shown (one per unit of capacity) count.
       trainingGroups: parseList(r.trainingGroups).slice(0, capacityOf(r)).filter(Boolean),
       availability_bitmask: defaultBitmask(r.availability_bitmask, numSlots),
     })),
+    // Rules keep only groups that still exist; rules with nothing picked are dropped.
+    groupRules: rows.groupRules
+      .map(r => ({
+        type: 'notAtSameTime' as const,
+        groups:  parseList(r.groups).filter(name => groupNames.has(name)),
+        against: parseList(r.against).filter(name => groupNames.has(name)),
+        required: r.required === '1',
+      }))
+      .filter(r => r.groups.length > 0 || r.against.length > 0),
   };
 }
 
 const EMPTY_ROW: Record<Tab, () => Record<string, string>> = {
-  locations: () => ({ name: '', courts: '1', courtNames: '[]' }),
-  timeslots: () => ({ day: '', start: '', finish: '', location_bitmask: '', courts: '[]' }),
+  locations: () => ({ name: '', spaces: '1', spaceNames: '[]' }),
+  timeslots: () => ({ day: '', start: '', finish: '', location_bitmask: '', spaces: '[]' }),
   groups:    () => ({ name: '', level: '', gender: 'female', availability_bitmask: '', location_bitmask: '' }),
-  trainers:  () => ({ name: '', groupID: '', ladiesRank: '', gentsRank: '', capacity: '1', trainingGroups: '[]', availability_bitmask: '' }),
+  trainers:  () => ({ name: '', groupID: '', femaleLevel: '1', maleLevel: '1', capacity: '1', trainingGroups: '[]', availability_bitmask: '' }),
+  groupRules: () => ({ groups: '[]', against: '[]', required: '0' }), // preferred by default
 };
 
 // One dropdown per unit of the trainer's capacity. Each lists only groups no other
-// trainer coaches, that this trainer hasn't already picked in another slot, and that
-// isn't their own Player Group (nobody coaches a group they play in).
+// trainer trains, that this trainer hasn't already picked in another slot, and that
+// isn't the group they are a member of (nobody trains their own group).
 function TrainingGroupsCell({
   value, onChange, capacity, groupNames, playerGroup, isTakenElsewhere,
 }: {
@@ -247,11 +316,11 @@ function AvailabilityCell({
   shown?: boolean[];
 }) {
   if (timeslots.length === 0) {
-    return <span className="text-sm italic text-gray-400">Define timeslots first</span>;
+    return <span className="text-sm italic text-gray-400">Add timeslots first</span>;
   }
   const visible = timeslots.map((_, i) => i).filter(i => shown?.[i] ?? true);
   if (visible.length === 0) {
-    return <span className="text-sm italic text-gray-400">No timeslots at the selected locations</span>;
+    return <span className="text-sm italic text-gray-400">No timeslots at these locations yet</span>;
   }
   const arr  = parseBitmask(value);
   const bits = timeslots.map((_, i) => (arr[i] ?? 1) === 1);
@@ -283,7 +352,7 @@ function AvailabilityCell({
             </button>
             {daySlots.map(i => (
               <Chip key={i} selected={bits[i]} onClick={() => setAvailable([i], !bits[i])}>
-                {timeslots[i].start}–{timeslots[i].finish}
+                {timeslots[i].start}-{timeslots[i].finish}
               </Chip>
             ))}
           </div>
@@ -293,9 +362,50 @@ function AvailabilityCell({
   );
 }
 
-// One name box per court (Name Courts). Names must be unique within the location, and
-// with court-specific timeslots every court needs one; problems are highlighted.
-function CourtNamesCell({
+// One side of a group rule: the picked groups as removable chips, plus an "Add group"
+// dropdown listing groups not already in the rule (on either side).
+function GroupPickerCell({
+  value, onChange, groupNames, otherSide,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  groupNames: string[];
+  otherSide: string[];
+}) {
+  const picked = parseList(value);
+  const available = groupNames.filter(name => !picked.includes(name) && !otherSide.includes(name));
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 py-1.5">
+      {picked.map(name => (
+        <span key={name} className="flex items-center gap-0.5 rounded-full bg-blue-600 py-0.5 pl-2 pr-0.5 text-xs text-white">
+          {name}
+          <button
+            type="button"
+            onClick={() => onChange(JSON.stringify(picked.filter(n => n !== name)))}
+            aria-label={`Remove ${name}`}
+            className="rounded-full px-1.5 hover:bg-blue-700"
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      {available.length > 0 && (
+        <select
+          value=""
+          onChange={e => onChange(JSON.stringify([...picked, e.target.value]))}
+          className="rounded-full border border-gray-300 bg-white px-2 py-0.5 text-xs text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="" disabled>+ Add Group</option>
+          {available.map(name => <option key={name} value={name}>{name}</option>)}
+        </select>
+      )}
+    </div>
+  );
+}
+
+// One name box per space (Name Spaces). Names must be unique within the location, and
+// with space-specific timeslots every space needs one; problems are highlighted.
+function SpaceNamesCell({
   value, onChange, count, required,
 }: {
   value: string;
@@ -321,7 +431,7 @@ function CourtNamesCell({
         <input
           key={i}
           value={name}
-          placeholder={`Court ${i + 1}`}
+          placeholder={`Space ${i + 1}`}
           onChange={e => setName(i, e.target.value)}
           className={`w-32 rounded border px-1.5 py-1 text-base text-gray-900 placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
             isProblem(name) ? 'border-red-300 bg-red-50' : 'border-gray-200'
@@ -332,41 +442,41 @@ function CourtNamesCell({
   );
 }
 
-// Court-specific timeslots: which courts a timeslot runs on, grouped by location.
-// An empty list means every court; at least one court always stays ticked.
-function CourtsCell({
-  value, onChange, courtsByLocation,
+// Space-specific timeslots: which spaces a timeslot runs on, grouped by location.
+// An empty list means every space; at least one space always stays ticked.
+function SpacesCell({
+  value, onChange, spacesByLocation,
 }: {
   value: string;
   onChange: (v: string) => void;
-  courtsByLocation: { location: string; courts: Court[] }[];
+  spacesByLocation: { location: string; spaces: Space[] }[];
 }) {
-  const allCourts = courtsByLocation.flatMap(l => l.courts.map(c => c.courtName));
-  if (allCourts.length === 0) {
-    return <span className="text-sm italic text-gray-400">Define locations first</span>;
+  const allSpaces = spacesByLocation.flatMap(l => l.spaces.map(c => c.spaceName));
+  if (allSpaces.length === 0) {
+    return <span className="text-sm italic text-gray-400">Add locations first</span>;
   }
-  const stored = parseList(value).filter(name => allCourts.includes(name));
-  const ticked = new Set(stored.length > 0 ? stored : allCourts);
+  const stored = parseList(value).filter(name => allSpaces.includes(name));
+  const ticked = new Set(stored.length > 0 ? stored : allSpaces);
 
   function toggle(name: string, checked: boolean) {
-    const next = allCourts.filter(c => (c === name ? checked : ticked.has(c)));
-    onChange(JSON.stringify(next.length === allCourts.length ? [] : next));
+    const next = allSpaces.filter(c => (c === name ? checked : ticked.has(c)));
+    onChange(JSON.stringify(next.length === allSpaces.length ? [] : next));
   }
 
   return (
     <div className="flex flex-col gap-1.5 py-1.5">
-      {courtsByLocation.map(({ location, courts }) => (
+      {spacesByLocation.map(({ location, spaces }) => (
         <div key={location} className="flex flex-wrap items-center gap-1.5">
           <span className="w-24 shrink-0 truncate text-xs font-semibold text-gray-600" title={location}>{location}</span>
-          {courts.map(({ courtName, label }) => {
-            const isLast = ticked.has(courtName) && ticked.size === 1;
+          {spaces.map(({ spaceName, label }) => {
+            const isLast = ticked.has(spaceName) && ticked.size === 1;
             return (
               <Chip
-                key={courtName}
-                selected={ticked.has(courtName)}
+                key={spaceName}
+                selected={ticked.has(spaceName)}
                 disabled={isLast}
-                title={isLast ? 'At least one court must stay selected' : undefined}
-                onClick={() => toggle(courtName, !ticked.has(courtName))}
+                title={isLast ? 'A timeslot needs at least one space' : undefined}
+                onClick={() => toggle(spaceName, !ticked.has(spaceName))}
               >
                 {label}
               </Chip>
@@ -386,7 +496,7 @@ function LocationCell({
   locationNames: string[];
 }) {
   if (locationNames.length === 0) {
-    return <span className="text-sm italic text-gray-400">Define locations first</span>;
+    return <span className="text-sm italic text-gray-400">Add locations first</span>;
   }
   if (locationNames.length === 1) {
     return <span className="text-sm italic text-gray-400">{locationNames[0]}</span>;
@@ -451,23 +561,23 @@ function TravelTimesSection({
     <div className="mt-10">
       <h2 className="text-base font-semibold text-gray-700 mb-1">Travel Times</h2>
       <p className="text-sm text-gray-400 mb-5">
-        Minutes required to travel between venues. The scheduler will enforce these as hard constraints and reward trainers who stay at one venue.
+        How many minutes it takes to get from one location to another. The scheduler gives trainers enough time to travel between their sessions.
       </p>
       <div className="space-y-3">
         {pairs.map(([from, to]) => (
           <div key={`${from}__${to}`} className="flex items-center gap-4">
             <span className="text-sm text-gray-700 w-52">
-              {from} <span className="text-gray-400 mx-1">↔</span> {to}
+              {from} <span className="mx-1 text-gray-400">and</span> {to}
             </span>
             <input
               type="number"
               min="1"
               value={getMinutes(from, to)}
               onChange={e => setMinutes(from, to, e.target.value)}
-              placeholder="—"
+              placeholder="0"
               className="w-20 rounded border border-gray-200 px-3 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <span className="text-sm text-gray-400">min</span>
+            <span className="text-sm text-gray-400">minutes</span>
           </div>
         ))}
       </div>
@@ -480,6 +590,7 @@ const INIT_ROWS = (): RowMap => ({
   timeslots: [EMPTY_ROW.timeslots()],
   groups:    [EMPTY_ROW.groups()],
   trainers:  [EMPTY_ROW.trainers()],
+  groupRules: [EMPTY_ROW.groupRules()],
 });
 
 // The table rows for a schedule's stored data, keeping the empty starting row for
@@ -493,6 +604,7 @@ function initialRows(data: ScheduleData | null): RowMap {
     timeslots: loaded.timeslots.length ? loaded.timeslots : empty.timeslots,
     groups:    loaded.groups.length    ? loaded.groups    : empty.groups,
     trainers:  loaded.trainers.length  ? loaded.trainers  : empty.trainers,
+    groupRules: loaded.groupRules.length ? loaded.groupRules : empty.groupRules,
   };
 }
 
@@ -529,6 +641,7 @@ export default function DataPage() {
   const availabilityColumn: Column = useMemo(() => ({
     key: 'availability_bitmask',
     header: 'Availability',
+    hint: 'The timeslots they can make. Click a time to switch it on or off, or click a day to switch the whole day.',
     render: (value, onChange) => (
       <AvailabilityCell value={value} onChange={onChange} timeslots={timeslotList} />
     ),
@@ -543,24 +656,24 @@ export default function DataPage() {
     },
   }), [timeslotList]);
 
-  const courtsByLocation = useMemo(
-    () => rowsToLocations(rows.locations).map(loc => ({ location: loc.name, courts: expandLocations([loc]) })),
+  const spacesByLocation = useMemo(
+    () => rowsToLocations(rows.locations).map(loc => ({ location: loc.name, spaces: expandLocations([loc]) })),
     [rows.locations],
   );
 
   // The locations each timeslot runs at: those ticked for it (by location, or with
-  // court-specific timeslots, by having one of its courts ticked); all when none are.
+  // space-specific timeslots, by having one of its spaces ticked); all when none are.
   const timeslotLocations = useMemo(
     () => rows.timeslots.filter(r => r.day).map(r => {
-      if (settings.courtTimeslots) {
-        const courts = new Set(parseList(r.courts));
-        const at = courtsByLocation.filter(l => l.courts.some(c => courts.has(c.courtName))).map(l => l.location);
+      if (settings.spaceTimeslots) {
+        const spaces = new Set(parseList(r.spaces));
+        const at = spacesByLocation.filter(l => l.spaces.some(c => spaces.has(c.spaceName))).map(l => l.location);
         return at.length > 0 ? at : locationNames;
       }
       const bits = parseBitmask(r.location_bitmask ?? '');
       return locationNames.filter((_, i) => (bits[i] ?? 1) === 1);
     }),
-    [rows.timeslots, settings.courtTimeslots, courtsByLocation, locationNames],
+    [rows.timeslots, settings.spaceTimeslots, spacesByLocation, locationNames],
   );
 
   // Groups only see the timeslots that run at one of their selected locations.
@@ -580,39 +693,41 @@ export default function DataPage() {
     },
   }), [availabilityColumn, locationNames, timeslotList, timeslotLocations]);
 
-  const courtNamesColumn: Column = useMemo(() => ({
-    key: 'courtNames',
-    header: 'Court Names',
+  const spaceNamesColumn: Column = useMemo(() => ({
+    key: 'spaceNames',
+    header: 'Space Names',
+    hint: 'A name for each space, such as Hall A or Pool 2. Two spaces at one location need different names.',
     render: (value, onChange, row) => (
-      <CourtNamesCell
+      <SpaceNamesCell
         value={value}
         onChange={onChange}
-        count={Math.max(1, parseInt(row.courts, 10) || 1)}
-        required={settings.courtTimeslots}
+        count={Math.max(1, parseInt(row.spaces, 10) || 1)}
+        required={settings.spaceTimeslots}
       />
     ),
-    // Pasted as court names separated by commas, in court order.
+    // Pasted as space names separated by commas, in space order.
     parsePaste: (values) => ({
       value: JSON.stringify((values[0] ?? '').split(',').map(n => n.trim())),
       consumed: 1,
     }),
-  }), [settings.courtTimeslots]);
+  }), [settings.spaceTimeslots]);
 
-  const courtsColumn: Column = useMemo(() => ({
-    key: 'courts',
-    header: 'Courts',
+  const spacesColumn: Column = useMemo(() => ({
+    key: 'spaces',
+    header: 'Spaces',
+    hint: 'The spaces this timeslot runs in. Click a space to switch it on or off.',
     render: (value, onChange) => (
-      <CourtsCell value={value} onChange={onChange} courtsByLocation={courtsByLocation} />
+      <SpacesCell value={value} onChange={onChange} spacesByLocation={spacesByLocation} />
     ),
-    // Pasted as location + court name, separated by commas, e.g. "Club A Show Court, Club A 2".
+    // Pasted as location + space name, separated by commas, e.g. "Club A Show Space, Club A 2".
     parsePaste: (values) => {
-      const all = courtsByLocation.flatMap(l => l.courts.map(c => c.courtName));
+      const all = spacesByLocation.flatMap(l => l.spaces.map(c => c.spaceName));
       const names = (values[0] ?? '').split(',')
         .map(raw => all.find(c => c.toLowerCase() === raw.trim().toLowerCase()) ?? '')
         .filter(Boolean);
       return { value: JSON.stringify(names), consumed: 1 };
     },
-  }), [courtsByLocation]);
+  }), [spacesByLocation]);
 
   const locationColumn: Column = useMemo(() => ({
     key: 'location_bitmask',
@@ -633,8 +748,9 @@ export default function DataPage() {
 
   const playerGroupColumn: Column = useMemo(() => ({
     key: 'groupID',
-    header: 'Player Group',
-    width: '160px',
+    header: 'Member Of',
+    hint: "The group this trainer belongs to, if any. They never train their own group, and the scheduler keeps them free to attend its session.",
+    width: '170px',
     render: (value, onChange) => (
       <select
         value={value}
@@ -649,7 +765,7 @@ export default function DataPage() {
     ),
     parsePaste: (values) => {
       const raw = (values[0] ?? '').trim();
-      if (!raw || raw.toLowerCase() === 'none' || raw.toLowerCase() === 'not a player') {
+      if (!raw || raw.toLowerCase() === 'none') {
         return { value: '', consumed: 1 };
       }
       const match = groupNames.find(g => g.toLowerCase() === raw.toLowerCase());
@@ -657,7 +773,7 @@ export default function DataPage() {
     },
   }), [groupNames]);
 
-  // Which trainer row coaches each group, so other trainers' dropdowns can leave it out.
+  // Which trainer row trains each group, so other trainers' dropdowns can leave it out.
   const trainingGroupsColumn: Column = useMemo(() => {
     const coachedBy = new Map<string, Record<string, string>>();
     for (const row of rows.trainers) {
@@ -667,8 +783,9 @@ export default function DataPage() {
     }
     return {
       key: 'trainingGroups',
-      header: 'Training Group',
-      width: '160px',
+      header: 'Training Groups',
+      hint: 'The groups this trainer trains. You get one box for each group their capacity allows.',
+      width: '190px',
       render: (value, onChange, row) => (
         <TrainingGroupsCell
           value={value}
@@ -680,14 +797,42 @@ export default function DataPage() {
         />
       ),
       // Pasted as group names separated by commas.
-      parsePaste: (values) => {
-        const names = (values[0] ?? '').split(',')
-          .map(raw => groupNames.find(g => g.toLowerCase() === raw.trim().toLowerCase()) ?? '')
-          .filter(Boolean);
-        return { value: JSON.stringify(names), consumed: 1 };
-      },
+      parsePaste: (values) => ({ value: JSON.stringify(pastedGroupNames(values[0], groupNames)), consumed: 1 }),
     };
   }, [rows.trainers, groupNames]);
+
+  // Group Rules tab: two sides of picked groups, and whether the rule is required.
+  const groupRuleColumns: Column[] = useMemo(() => {
+    const side = (key: 'groups' | 'against', header: string, hint: string, other: 'groups' | 'against'): Column => ({
+      key,
+      header,
+      hint,
+      render: (value, onChange, row) => (
+        <GroupPickerCell value={value} onChange={onChange} groupNames={groupNames} otherSide={parseList(row[other])} />
+      ),
+      // Pasted as group names separated by commas (pasted into one side at a time).
+      parsePaste: (values) => ({ value: JSON.stringify(pastedGroupNames(values[0], groupNames)), consumed: 1 }),
+    });
+    return [
+      // Read as a sentence: members of these groups can attend those groups' sessions.
+      side('groups', 'Members Of', 'The groups whose members want to attend other sessions.', 'against'),
+      side('against', 'Can Attend', 'The groups whose sessions they want to attend.', 'groups'),
+      {
+        key: 'required',
+        header: 'Required',
+        hint: 'On: The scheduler never lets these sessions overlap.\nOff: The scheduler avoids overlaps where it can, when the Group Rules reward is switched on.',
+        width: '140px',
+        render: (value, onChange) => (
+          <Chip selected={value === '1'} onClick={() => onChange(value === '1' ? '0' : '1')}>Required</Chip>
+        ),
+        // Pasted as yes/no (also true/false, 1/0, "required").
+        parsePaste: (values) => ({
+          value: ['yes', 'y', 'true', '1', 'required'].includes((values[0] ?? '').trim().toLowerCase()) ? '1' : '0',
+          consumed: 1,
+        }),
+      },
+    ];
+  }, [groupNames]);
 
   // Which columns show depends on the Scheduler Settings (hidden values are kept, not deleted).
   const columns: Record<Tab, Column[]> = useMemo(() => {
@@ -699,50 +844,59 @@ export default function DataPage() {
       : [nameColumn, ...(settings.genderedTeams ? GENDERED_LEVEL_COLUMNS : [SINGLE_LEVEL_COLUMN]), capacityColumn];
     return {
       ...BASE_COLUMNS,
-      locations: courtsNamed(settings) ? [...BASE_COLUMNS.locations, courtNamesColumn] : BASE_COLUMNS.locations,
-      timeslots: [...BASE_COLUMNS.timeslots, settings.courtTimeslots ? courtsColumn : locationColumn],
-      groups:    [...groupColumns, locationColumn, groupAvailabilityColumn],
+      locations: spacesNamed(settings) ? [...BASE_COLUMNS.locations, spaceNamesColumn] : BASE_COLUMNS.locations,
+      timeslots: [...BASE_COLUMNS.timeslots, settings.spaceTimeslots
+        ? spacesColumn
+        : { ...locationColumn, hint: 'The locations this timeslot runs at. Click a location to switch it on or off.' }],
+      groups:    [
+        ...groupColumns,
+        { ...locationColumn, hint: 'Where this group can train. Click a location to switch it on or off.' },
+        groupAvailabilityColumn,
+      ],
       trainers:  [...trainerColumns, playerGroupColumn, availabilityColumn],
+      groupRules: groupRuleColumns,
     };
-  }, [settings, data, availabilityColumn, groupAvailabilityColumn, playerGroupColumn, trainingGroupsColumn, locationColumn, courtsColumn, courtNamesColumn]);
+  }, [settings, data, availabilityColumn, groupAvailabilityColumn, playerGroupColumn, trainingGroupsColumn, locationColumn, spacesColumn, spaceNamesColumn, groupRuleColumns]);
 
-  // Renaming a court (or its location) carries its timeslot ticks over to the new name.
-  // tickIds.current[i][j] is the name the ticks for location row i, court j are stored
-  // under. While a rename passes through a name another court at that location already
-  // has (e.g. typing "Show 2" next to "Show"), the ticks wait on their last unique name,
-  // so two courts' ticks are never merged.
-  const tickIds = useRef<string[][]>(rows.locations.map(courtIdsOf));
+  // Renames carry over to everything that refers to the renamed item (see carryRenames):
+  // a space or location's timeslot ticks, and a group's Member Of, Training Groups and
+  // group rule references. spaceRefs[i][j] and groupRefs[i] are the names those references
+  // currently use, by row position; adding or removing rows starts tracking afresh.
+  const spaceRefs = useRef<string[][]>(rows.locations.map(spaceIdsOf));
+  const groupRefs = useRef<string[]>(rows.groups.map(r => r.name ?? ''));
 
   function updateTab(updated: Record<string, string>[]) {
-    if (tab !== 'locations') {
-      setRows(prev => ({ ...prev, [tab]: updated }));
-      return;
-    }
     const renamed = new Map<string, string>();
-    if (updated.length === tickIds.current.length) {
-      tickIds.current = updated.map((row, i) => {
-        const ids = courtIdsOf(row);
-        if (ids.length === 0) return tickIds.current[i];  // location name cleared mid-edit
-        return ids.map((id, j) => {
-          const old = tickIds.current[i][j];
-          if (old === undefined) return id;                              // a court just added
-          if (ids.indexOf(id) !== ids.lastIndexOf(id)) return old;       // duplicate: wait
-          if (old !== id) renamed.set(old, id);
-          return id;
-        });
-      });
-    } else {
-      // Location rows added or removed: start tracking afresh from the current names.
-      tickIds.current = updated.map(courtIdsOf);
+    if (tab === 'locations') {
+      spaceRefs.current = updated.length === spaceRefs.current.length
+        ? updated.map((row, i) => {
+            const ids = spaceIdsOf(row);
+            // A location whose name is cleared mid-edit keeps its references.
+            return ids.length === 0 ? spaceRefs.current[i] : carryRenames(spaceRefs.current[i], ids, renamed);
+          })
+        : updated.map(spaceIdsOf);
+    } else if (tab === 'groups') {
+      const names = updated.map(r => r.name ?? '');
+      groupRefs.current = updated.length === groupRefs.current.length
+        ? carryRenames(groupRefs.current, names, renamed)
+        : names;
     }
-    setRows(prev => ({
-      ...prev,
-      locations: updated,
-      timeslots: renamed.size === 0 ? prev.timeslots : prev.timeslots.map(r => ({
-        ...r,
-        courts: JSON.stringify(parseList(r.courts).map(name => renamed.get(name) ?? name)),
-      })),
-    }));
+
+    const rename = (list: string) => JSON.stringify(parseList(list).map(name => renamed.get(name) ?? name));
+    setRows(prev => {
+      const next = { ...prev, [tab]: updated };
+      if (renamed.size === 0) return next;
+      if (tab === 'locations') {
+        return { ...next, timeslots: next.timeslots.map(r => ({ ...r, spaces: rename(r.spaces) })) };
+      }
+      return {
+        ...next,
+        trainers: next.trainers.map(r => ({
+          ...r, groupID: renamed.get(r.groupID) ?? r.groupID, trainingGroups: rename(r.trainingGroups),
+        })),
+        groupRules: next.groupRules.map(r => ({ ...r, groups: rename(r.groups), against: rename(r.against) })),
+      };
+    });
   }
 
   const slotClashes = useMemo(() => (data ? timeslotClashes(data, settings) : []), [data, settings]);
@@ -750,41 +904,53 @@ export default function DataPage() {
   function clearAll() {
     setRows(INIT_ROWS());
     setTravelTimes([]);
-    tickIds.current = [[]];
+    spaceRefs.current = [[]];
+    groupRefs.current = [''];
   }
 
   function clearTab() {
     setRows(prev => ({ ...prev, [tab]: [EMPTY_ROW[tab]()] }));
     if (tab === 'locations') {
       setTravelTimes([]);
-      tickIds.current = [[]];
+      spaceRefs.current = [[]];
     }
+    if (tab === 'groups') groupRefs.current = [''];
   }
+
+  // Rows with something entered, for the tab badges.
+  const filledRows = (t: Tab) => rows[t].filter(r => (t === 'groupRules'
+    ? parseList(r.groups).length + parseList(r.against).length > 0
+    : BASE_COLUMNS[t].some(c => !c.type && (r[c.key] ?? '') !== ''))).length;
 
   return (
     <div>
-      <div className="mb-8 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-gray-900">Input Data</h1>
-        <div className="flex items-center gap-2.5">
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900">Data</h1>
+          <p className="mt-1 text-base text-gray-500">
+            Tell DoubleShift what to schedule. Fill in the tabs from left to right, then open the Scheduler page.
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2.5">
           <button
             onClick={clearAll}
             className="flex items-center gap-2 rounded-md border border-gray-200 px-5 py-2.5 text-base font-medium text-gray-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600 transition-colors"
           >
             <Trash2 size={17} />
-            Clear all
+            Clear All
           </button>
           <button
             onClick={clearTab}
             className="flex items-center gap-2 rounded-md border border-gray-200 px-5 py-2.5 text-base font-medium text-gray-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600 transition-colors"
           >
             <Trash2 size={17} />
-            Clear tab
+            Clear Tab
           </button>
         </div>
       </div>
 
       <div className="mb-5 flex gap-1 border-b border-gray-200">
-        {TABS.map(t => (
+        {TABS.filter(t => t.id !== 'groupRules' || settings.groupRules).map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -796,17 +962,17 @@ export default function DataPage() {
           >
             {t.label}
             <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-sm text-gray-500">
-              {rows[t.id].filter(r =>
-                BASE_COLUMNS[t.id].some(c => !c.type && (r[c.key] ?? '') !== '')
-              ).length}
+              {filledRows(t.id)}
             </span>
           </button>
         ))}
       </div>
 
+      <p className="mb-4 text-base text-gray-500">{TABS.find(t => t.id === tab)!.intro}</p>
+
       {tab === 'timeslots' && slotClashes.length > 0 && (
         <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <div className="mb-1 font-semibold">Timeslots can&apos;t overlap on the same court:</div>
+          <div className="mb-1 font-semibold">A space can only hold one session at a time. Please change these timeslots so they no longer overlap:</div>
           <ul className="list-disc pl-5">
             {slotClashes.map((clash, i) => <li key={i}>{clash}</li>)}
           </ul>

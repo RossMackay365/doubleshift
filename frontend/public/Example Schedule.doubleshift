@@ -1,0 +1,409 @@
+{
+  "version": 1,
+  "data": {
+    "locations": [
+      {
+        "name": "Main Hall",
+        "spaces": 2
+      },
+      {
+        "name": "East Gym",
+        "spaces": 1
+      }
+    ],
+    "timeslots": [
+      {
+        "day": "Monday",
+        "start": "18:00",
+        "finish": "19:30",
+        "location_bitmask": [
+          1,
+          1
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Monday",
+        "start": "19:30",
+        "finish": "21:00",
+        "location_bitmask": [
+          1,
+          1
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Wednesday",
+        "start": "18:00",
+        "finish": "19:30",
+        "location_bitmask": [
+          1,
+          0
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Wednesday",
+        "start": "19:30",
+        "finish": "21:00",
+        "location_bitmask": [
+          1,
+          0
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Thursday",
+        "start": "18:00",
+        "finish": "19:30",
+        "location_bitmask": [
+          0,
+          1
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Thursday",
+        "start": "19:30",
+        "finish": "21:00",
+        "location_bitmask": [
+          0,
+          1
+        ],
+        "spaces": []
+      }
+    ],
+    "groups": [
+      {
+        "name": "Seniors 1",
+        "level": 1,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Seniors 2",
+        "level": 2,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Seniors 3",
+        "level": 3,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Seniors 4",
+        "level": 4,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Masters",
+        "level": 3,
+        "gender": "female",
+        "availability_bitmask": [
+          0,
+          1,
+          0,
+          1,
+          0,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Juniors 1",
+        "level": 3,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0
+        ],
+        "location_bitmask": [
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Juniors 2",
+        "level": 4,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0
+        ],
+        "location_bitmask": [
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Juniors 3",
+        "level": 5,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0
+        ],
+        "location_bitmask": [
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Development",
+        "level": 5,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Beginners",
+        "level": 6,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          0,
+          1
+        ]
+      },
+      {
+        "name": "Recreational",
+        "level": 6,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Social",
+        "level": 6,
+        "gender": "female",
+        "availability_bitmask": [
+          0,
+          1,
+          0,
+          1,
+          0,
+          1
+        ],
+        "location_bitmask": [
+          1,
+          1
+        ]
+      }
+    ],
+    "trainers": [
+      {
+        "name": "Alex Morgan",
+        "groupID": "",
+        "femaleLevel": 1,
+        "maleLevel": 1,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Sam Taylor",
+        "groupID": "Seniors 1",
+        "femaleLevel": 2,
+        "maleLevel": 1,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Jo Bennett",
+        "groupID": "Seniors 2",
+        "femaleLevel": 3,
+        "maleLevel": 1,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          0,
+          0
+        ]
+      },
+      {
+        "name": "Chris Novak",
+        "groupID": "",
+        "femaleLevel": 3,
+        "maleLevel": 1,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Robin Clarke",
+        "groupID": "Seniors 3",
+        "femaleLevel": 4,
+        "maleLevel": 1,
+        "capacity": 2,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Pat Delgado",
+        "groupID": "",
+        "femaleLevel": 5,
+        "maleLevel": 1,
+        "capacity": 1,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          0,
+          0,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Morgan Lee",
+        "groupID": "Masters",
+        "femaleLevel": 5,
+        "maleLevel": 1,
+        "capacity": 1,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "groupRules": [],
+    "travelTimes": [
+      {
+        "from": "Main Hall",
+        "to": "East Gym",
+        "minutes": 20
+      }
+    ]
+  },
+  "settings": {
+    "maxSolveSeconds": 30
+  },
+  "last_run": null
+}

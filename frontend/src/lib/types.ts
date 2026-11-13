@@ -9,14 +9,15 @@ export interface ScheduleSettings {
   maxSolveSeconds: number;
   assignTrainers: boolean;   // trainers are assigned to their groups rather than allocated by the solver
   genderedTeams: boolean;
-  courtTimeslots: boolean;   // timeslots are chosen per court rather than per location
-  nameCourts: boolean;       // courts have names (always on with court-specific timeslots)
+  spaceTimeslots: boolean;   // timeslots are chosen per space rather than per location
+  nameSpaces: boolean;       // spaces have names (always on with space-specific timeslots)
+  groupRules: boolean;       // the Group Rules tab and reward
   rewardMode: 'points' | 'hierarchical';
   rewards: RewardSetting[];  // list order is the priority order in hierarchical mode
 }
 
 // User-facing entity shapes (what we save with a schedule and edit in the UI).
-// IDs are not part of these — they are generated automatically before sending
+// IDs are not part of these: they are generated automatically before sending
 // to the backend (see lib/api.ts).
 
 export interface Group {
@@ -29,18 +30,18 @@ export interface Group {
 
 export interface Trainer {
   name: string;
-  groupID: string; // the group they play in ("Player Group"): its name, resolved to an ID at send-time
-  trainingGroups?: string[]; // names of the groups they coach, when trainers are assigned to groups
-  ladiesRank: number;
-  gentsRank: number;
-  capacity: number; // max groups this trainer can be assigned to coach
+  groupID: string; // the group they are a member of ("Member Of"): its name, resolved to an ID at send-time
+  trainingGroups?: string[]; // names of the groups they train, when trainers are assigned to groups
+  femaleLevel: number;
+  maleLevel: number;
+  capacity: number; // max groups this trainer can train
   availability_bitmask: number[];
 }
 
 export interface Location {
   name: string;
-  courts: number;
-  courtNames?: string[]; // optional name per court (Name Courts setting); blank = its number
+  spaces: number;
+  spaceNames?: string[]; // optional name per space (Name Spaces setting); blank = its number
 }
 
 export interface TravelTime {
@@ -50,10 +51,10 @@ export interface TravelTime {
 }
 
 // Internal type used by ScheduleGrid and derived from Location[].
-// Not stored directly — computed via expandLocations().
-export interface Court {
-  courtName: string; // identity used everywhere: "<location> <name or number>", e.g. "Club A Show Court"
-  label: string;     // for display: the court's name, or "Court 3" when unnamed
+// Not stored directly: computed via expandLocations().
+export interface Space {
+  spaceName: string; // identity used everywhere: "<location> <name or number>", e.g. "Club A Show Space"
+  label: string;     // for display: the space's name, or "Space 3" when unnamed
   location: string;
 }
 
@@ -62,7 +63,17 @@ export interface Timeslot {
   start: string;
   finish: string;
   location_bitmask?: number[];
-  courts?: string[]; // court-specific timeslots: names of the courts it runs on (empty = all)
+  spaces?: string[]; // space-specific timeslots: names of the spaces it runs on (empty = all)
+}
+
+// A rule from the Group Rules tab. 'notAtSameTime': each group in `groups` shouldn't clash
+// with each group in `against` (e.g. so one group's members can attend another group's session).
+// Groups are referenced by name. `type` leaves room for other kinds of rule later.
+export interface GroupRule {
+  type: 'notAtSameTime';
+  groups: string[];
+  against: string[];
+  required: boolean; // must hold; otherwise penalised per minute (Group Rules reward)
 }
 
 export interface ScheduleData {
@@ -71,12 +82,13 @@ export interface ScheduleData {
   locations: Location[];
   timeslots: Timeslot[];
   travelTimes: TravelTime[];
+  groupRules?: GroupRule[];
 }
 
 export interface ScheduleEntry {
   group: string;
   trainer: string;
-  court: string;
+  space: string;
   timeslot: number; // matches the auto-generated timeslot id (its position)
 }
 
@@ -137,16 +149,16 @@ export interface VerifyResult {
   reward_counts?: Record<string, number> | null;
 }
 
-// Expand Location[] into Court[] for use in ScheduleGrid and API calls.
-// A court's name only needs to be unique within its location, because its identity
-// includes the location. Unnamed courts keep their number ("Club A 3").
-export function expandLocations(locations: Location[]): Court[] {
+// Expand Location[] into Space[] for use in ScheduleGrid and API calls.
+// A space's name only needs to be unique within its location, because its identity
+// includes the location. Unnamed spaces keep their number ("Club A 3").
+export function expandLocations(locations: Location[]): Space[] {
   return locations.flatMap(loc =>
-    Array.from({ length: loc.courts }, (_, i) => {
-      const name = loc.courtNames?.[i]?.trim();
+    Array.from({ length: loc.spaces }, (_, i) => {
+      const name = loc.spaceNames?.[i]?.trim();
       return {
-        courtName: `${loc.name} ${name || i + 1}`,
-        label: name || `Court ${i + 1}`,
+        spaceName: `${loc.name} ${name || i + 1}`,
+        label: name || `Space ${i + 1}`,
         location: loc.name,
       };
     })
@@ -166,11 +178,11 @@ export function slotsOverlap(a: Timeslot, b: Timeslot): boolean {
   return a.day === b.day && toMinutes(a.start) < toMinutes(b.finish) && toMinutes(b.start) < toMinutes(a.finish);
 }
 
-// Whether a timeslot runs on a court: limited by court name (court-specific timeslots) or
+// Whether a timeslot runs on a space: limited by space name (space-specific timeslots) or
 // by location (location_bitmask, indexed like locationNames). Unlimited runs everywhere.
-export function slotRunsOn(slot: Timeslot, court: Court, locationNames: string[]): boolean {
-  if (slot.courts?.length) return slot.courts.includes(court.courtName);
-  const bit = slot.location_bitmask?.[locationNames.indexOf(court.location)];
+export function slotRunsOn(slot: Timeslot, space: Space, locationNames: string[]): boolean {
+  if (slot.spaces?.length) return slot.spaces.includes(space.spaceName);
+  const bit = slot.location_bitmask?.[locationNames.indexOf(space.location)];
   return bit === undefined || bit === 1;
 }
 
@@ -184,4 +196,16 @@ export function sortDays(days: string[]): string[] {
     return i === -1 ? WEEKDAYS.length : i;
   };
   return [...days].sort((a, b) => rank(a) - rank(b));
+}
+
+// Minutes of the `other` session someone attending all of their `own` session would miss:
+// they can't get there until their own session ends plus travel, and must leave in time to
+// travel back for its start; 0 on different days. Mirrors missed_minutes in constraints.py.
+export function missedMinutes(own: Timeslot, ownVenue: string, other: Timeslot, otherVenue: string, travelTimes: TravelTime[]): number {
+  if (own.day !== other.day) return 0;
+  const travel = ownVenue === otherVenue ? 0 : travelTimes.find(t =>
+    (t.from === ownVenue && t.to === otherVenue) || (t.from === otherVenue && t.to === ownVenue))?.minutes ?? 0;
+  const busyFrom  = toMinutes(own.start) - travel;
+  const busyUntil = toMinutes(own.finish) + travel;
+  return Math.max(0, Math.min(toMinutes(other.finish), busyUntil) - Math.max(toMinutes(other.start), busyFrom));
 }

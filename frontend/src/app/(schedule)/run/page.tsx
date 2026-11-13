@@ -5,16 +5,17 @@ import {
   Pencil, X, ShieldCheck, RotateCcw, Save, BarChart2,
 } from 'lucide-react';
 import { verifySchedule } from '@/lib/api';
-import { ScheduleEntry, VerifyResult, expandLocations, Court } from '@/lib/types';
+import { ScheduleEntry, VerifyResult, expandLocations, Space } from '@/lib/types';
 import ScheduleGrid from '@/components/ScheduleGrid';
 import ScoreBreakdownPanel from '@/components/ScoreBreakdownPanel';
+import InfoHint from '@/components/InfoHint';
 import { useSchedule } from '@/components/ScheduleProvider';
 import { computeScoreBreakdown } from '@/lib/scoreBreakdown';
-import { REWARDS, applySettings, courtNameProblems, timeslotClashes } from '@/lib/settings';
+import { applySettings, spaceNameProblems, rewardLabel, timeslotClashes } from '@/lib/settings';
 
 // Overlay the optimality gap onto a verify result using the solver's best_bound,
 // which the client already holds. Keeps Verify independent of any server-side
-// job state — the backend only returns feasibility + score.
+// job state: the backend only returns feasibility + score.
 function withGap(result: VerifyResult, bound: number | null): VerifyResult {
   if (!result.feasible || bound == null || result.score == null) return result;
   const absolute_gap = Math.round((bound - result.score) * 10000) / 10000;
@@ -109,7 +110,7 @@ export default function RunPage() {
       const result = withGap(await verifySchedule(data, editableSchedule, runSettings), knownBound);
       setVerifyResult(result);
     } catch (e) {
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setVerifying(false);
     }
@@ -122,7 +123,7 @@ export default function RunPage() {
   );
 
   // In edit mode, ask before leaving this page (Data tab, Home, closing the window)
-  // with edits that haven't been applied with "Save changes".
+  // with edits that haven't been applied with "Apply Changes".
   useEffect(() => {
     if (!isModified) return;
     function onBeforeUnload(e: BeforeUnloadEvent) {
@@ -131,7 +132,7 @@ export default function RunPage() {
     function onLinkClick(e: MouseEvent) {
       const link = (e.target as HTMLElement).closest('a');
       if (!link || link.pathname === window.location.pathname) return;
-      if (!confirm(`You have edits that haven't been applied with "Save changes". Leave without applying them?`)) {
+      if (!confirm("You have edits you haven't applied yet. Leave without applying them?")) {
         e.preventDefault();
         e.stopImmediatePropagation(); // don't also show the schedule's own leave warning
       }
@@ -150,7 +151,7 @@ export default function RunPage() {
   );
   // Score the data as the solver saw it (e.g. one gender when teams aren't gendered).
   const solverData = useMemo(() => data && applySettings(data, runSettings), [data, runSettings]);
-  const courts = useMemo<Court[]>(() => expandLocations(solverData?.locations ?? []), [solverData]);
+  const spaces = useMemo<Space[]>(() => expandLocations(solverData?.locations ?? []), [solverData]);
   const breakdown = useMemo(
     () => (!showBreakdown || !solverData || breakdownSchedule.length === 0)
       ? null
@@ -158,13 +159,26 @@ export default function RunPage() {
     [showBreakdown, solverData, breakdownSchedule, runSettings],
   );
 
-  // With trainers assigned to groups, every group needs a trainer before running.
-  const unassignedGroups = settings.assignTrainers && data
-    ? data.groups.filter(g => !data.trainers.some(t => t.trainingGroups?.includes(g.name))).map(g => g.name)
-    : [];
-  // Court names must be complete and unique before running (see courtNameProblems).
-  const courtProblems = data ? courtNameProblems(data, settings) : [];
-  const slotClashes = data ? timeslotClashes(data, settings) : [];
+  // Everything that still needs doing on the Data page before a run can start.
+  const todo: string[] = [];
+  if (!data || data.locations.length === 0) todo.push('Add at least one location on the Locations tab.');
+  if (!data || data.timeslots.length === 0) todo.push('Add at least one timeslot on the Timeslots tab.');
+  if (!data || data.groups.length === 0) todo.push('Add at least one group on the Groups tab.');
+  if (!data || data.trainers.length === 0) todo.push('Add at least one trainer on the Trainers tab.');
+  if (data) {
+    for (const clash of timeslotClashes(data, settings)) {
+      todo.push(`Change the timeslots that overlap in the same space: ${clash}.`);
+    }
+    // Space names must be complete and unique (see spaceNameProblems).
+    todo.push(...spaceNameProblems(data, settings));
+    // With trainers assigned to groups, every group needs a trainer.
+    if (settings.assignTrainers) {
+      const unassigned = data.groups.filter(g => !data.trainers.some(t => t.trainingGroups?.includes(g.name))).map(g => g.name);
+      if (unassigned.length > 0) {
+        todo.push(`Choose a trainer for ${unassigned.join(', ')}. Pick each one as a Training Group on the Trainers tab.`);
+      }
+    }
+  }
   const stats     = jobStatus?.stats;
   const result    = jobStatus?.result ?? [];
   const hasResult = result.length > 0;
@@ -176,44 +190,26 @@ export default function RunPage() {
   const nearTimeout = running && timeLimit != null && liveElapsed != null && liveElapsed >= timeLimit;
   const inProgress = running && status !== 'completed';
   const canEdit   = hasResult && !running;
-  const stageName = REWARDS.find(r => r.key === stats?.stage_name)?.label;
+  const stageName = stats?.stage_name ? rewardLabel(stats.stage_name) : null;
 
   return (
     <div>
       {/* Header row */}
       <div className="mb-8 flex flex-wrap items-start gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Run Scheduler</h1>
-          {data && (
-            <p className="mt-1 text-base text-gray-500">
-              {data.groups.length} groups · {data.trainers.length} trainers · {courts.length} courts · {data.timeslots.length} timeslots
-            </p>
-          )}
-          {!data && (
-            <p className="mt-1 text-base text-amber-600">No data yet. Add it on the Data tab.</p>
-          )}
-          {slotClashes.length > 0 && (
-            <p className="mt-1 text-base text-amber-600">
-              Timeslots to fix on the Data tab: {slotClashes.join('; ')}.
-            </p>
-          )}
-          {courtProblems.length > 0 && (
-            <p className="mt-1 text-base text-amber-600">
-              Court names to fix on the Data tab: {courtProblems.join('; ')}.
-            </p>
-          )}
-          {unassignedGroups.length > 0 && (
-            <p className="mt-1 text-base text-amber-600">
-              No trainer assigned to: {unassignedGroups.join(', ')}. Choose them as Training Groups on the Data tab.
-            </p>
-          )}
+          <h1 className="text-2xl font-semibold text-gray-900">Scheduler</h1>
+          <p className="mt-1 text-base text-gray-500">
+            {data && todo.length === 0
+              ? `Ready to schedule ${count(data.groups.length, 'group')} with ${count(data.trainers.length, 'trainer')}, ${count(spaces.length, 'space')} and ${count(data.timeslots.length, 'timeslot')}.`
+              : 'Press Run to build a schedule from your data.'}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2.5 ml-auto">
           {!editMode && (
             <>
               <button
                 onClick={handleRun}
-                disabled={!data || running || unassignedGroups.length > 0 || courtProblems.length > 0 || slotClashes.length > 0}
+                disabled={running || todo.length > 0}
                 className="flex items-center gap-2 rounded-md bg-blue-600 px-5 py-2.5 text-base font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
               >
                 {running ? <Loader2 size={17} className="animate-spin" /> : <Play size={17} />}
@@ -226,7 +222,7 @@ export default function RunPage() {
                   className="flex items-center gap-2 rounded-md border border-red-200 bg-white px-5 py-2.5 text-base font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
                 >
                   {cancelling ? <Loader2 size={17} className="animate-spin" /> : <Square size={17} />}
-                  {cancelling ? 'Cancelling…' : 'Cancel'}
+                  {cancelling ? 'Cancelling...' : 'Cancel'}
                 </button>
               )}
               {canEdit && (
@@ -235,7 +231,7 @@ export default function RunPage() {
                   className="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-5 py-2.5 text-base font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   <Pencil size={17} />
-                  Edit schedule
+                  Edit Schedule
                 </button>
               )}
             </>
@@ -253,13 +249,15 @@ export default function RunPage() {
               <button
                 onClick={() => handleSaveEdits()}
                 disabled={!isModified || verifyResult === null}
+                title={isModified && verifyResult === null ? 'Press Verify first to check your changes' : undefined}
                 className="flex items-center gap-2 rounded-md bg-blue-600 px-5 py-2.5 text-base font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
               >
                 <Save size={17} />
-                Save changes
+                Apply Changes
               </button>
               <button
                 onClick={handleResetEdit}
+                title="Undo all your edits"
                 className="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-5 py-2.5 text-base font-medium text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 <RotateCcw size={17} />
@@ -277,15 +275,28 @@ export default function RunPage() {
         </div>
       </div>
 
+      {/* What still needs doing before a run */}
+      {todo.length > 0 && !editMode && (
+        <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-base text-amber-800">
+          <div className="mb-1 font-semibold">A few things to finish on the Data page before you can run:</div>
+          <ul className="list-disc space-y-1 pl-5">
+            {todo.map((item, i) => <li key={i}>{item}</li>)}
+          </ul>
+        </div>
+      )}
+
       {/* Edit mode banner */}
       {editMode && (
         <div className="mb-5 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-base text-blue-700">
           <Pencil size={16} className="shrink-0" />
-          <span>Edit mode — drag sessions to move them, use the dropdown to change a trainer. Click <strong className="mx-1">Verify</strong> first, then <strong className="mx-1">Save changes</strong>.</span>
+          <span>
+            Drag a session to move it, or pick another trainer from its dropdown. Press <strong>Verify</strong> to
+            check your changes, then <strong>Apply Changes</strong> to keep them.
+          </span>
           {isModified && (
             <span className="ml-auto flex shrink-0 items-center gap-1.5 text-sm font-medium text-amber-600">
               <span className="inline-block h-2 w-2 rounded-full bg-amber-400" />
-              Unsaved changes
+              Changes not applied yet
             </span>
           )}
         </div>
@@ -307,26 +318,48 @@ export default function RunPage() {
           <div className="flex items-start justify-between gap-4">
             <div className="flex flex-wrap items-center gap-x-7 gap-y-2.5 text-base">
               <StatusBadge status={status!} />
-              {stats?.solutions_found != null && <Stat label="Solutions found" value={stats.solutions_found} />}
-              {!hierarchical && stats?.current_score != null && <Stat label="Current score" value={(stats.current_score / 10000).toFixed(2)} />}
+              {stats?.solutions_found != null && (
+                <Stat
+                  label="Schedules found"
+                  value={stats.solutions_found}
+                  hint="How many times the scheduler has found a better schedule than the one before."
+                />
+              )}
+              {!hierarchical && stats?.current_score != null && (
+                <Stat
+                  label="Score"
+                  value={points(stats.current_score)}
+                  hint="The schedule's total reward points. Higher is better. Open Score Breakdown to see where the points come from."
+                />
+              )}
               {hierarchical && running && stageName && (
-                <Stat label="Optimising" value={`${stageName} (${stats!.stage} of ${stats!.stage_count})`} />
+                <Stat
+                  label="Working on"
+                  value={`${stageName} (reward ${stats!.stage} of ${stats!.stage_count})`}
+                  hint="The scheduler improves one reward at a time, in your priority order."
+                />
               )}
               {liveElapsed != null && (
                 <Stat
-                  label="Elapsed"
-                  value={`${liveElapsed.toFixed(1)}s${timeLimit != null ? ` / ${timeLimit.toFixed(0)}s limit` : ''}`}
+                  label="Time"
+                  value={`${liveElapsed.toFixed(1)}s${timeLimit != null ? ` of ${timeLimit.toFixed(0)}s` : ''}`}
                 />
               )}
-              {!hierarchical && stats?.gap_percent != null && <Stat label="Gap" value={`${stats.gap_percent.toFixed(1)}%`} />}
+              {!hierarchical && stats?.gap_percent != null && (
+                <Stat
+                  label="Gap"
+                  value={`${stats.gap_percent.toFixed(1)}%`}
+                  hint="How far the score could still be from the best possible. At 0%, no better schedule exists."
+                />
+              )}
               {nearTimeout && (
                 <span className="flex items-center gap-1.5 text-amber-600">
-                  <Clock size={16} /> Reaching time limit — finishing up…
+                  <Clock size={16} /> Time Limit Reached. Finishing up...
                 </span>
               )}
               {stats?.optimal && (
                 <span className="flex items-center gap-1.5 text-green-600">
-                  <CheckCircle2 size={16} /> Optimal
+                  <CheckCircle2 size={16} /> Optimal: no better schedule exists
                 </span>
               )}
               {status === 'completed' && !stats?.optimal && stats?.stopped_reason === 'time_limit' && (
@@ -337,7 +370,7 @@ export default function RunPage() {
               {status === 'cancelled' && (
                 <span className="flex items-center gap-1.5 text-gray-600">
                   <Square size={16} />
-                  {hasResult ? 'Cancelled' : 'Cancelled - No Solution Found'}
+                  {hasResult ? 'You cancelled the run. This is the best schedule it found.' : 'You cancelled the run before it found a schedule.'}
                 </span>
               )}
               {stats?.error && <span className="text-red-600">{stats.error}</span>}
@@ -348,13 +381,13 @@ export default function RunPage() {
                 className="shrink-0 flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-600 hover:border-blue-300 hover:text-blue-600 transition-colors"
               >
                 <BarChart2 size={14} />
-                {showBreakdown ? 'Hide breakdown' : 'Score breakdown'}
+                {showBreakdown ? 'Hide Breakdown' : 'Score Breakdown'}
               </button>
             )}
           </div>
           {stats?.issues && stats.issues.length > 0 && (
             <div className="mt-4 rounded-md border border-red-100 bg-red-50 p-4">
-              <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-red-700">Likely causes</div>
+              <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-red-700">What to check</div>
               <ul className="list-disc space-y-1.5 pl-5 text-base text-red-800">
                 {stats.issues.map((msg, i) => <li key={i}>{msg}</li>)}
               </ul>
@@ -371,25 +404,28 @@ export default function RunPage() {
               {verifyResult.feasible ? (
                 <>
                   <span className="flex items-center gap-1.5 font-semibold text-green-700">
-                    <CheckCircle2 size={17} /> Valid schedule
+                    <CheckCircle2 size={17} /> Your edited schedule still meets every requirement.
                   </span>
-                  {!hierarchical && verifyResult.score != null && <Stat label="Score" value={(verifyResult.score / 10000).toFixed(2)} />}
+                  {!hierarchical && verifyResult.score != null && <Stat label="Score" value={points(verifyResult.score)} />}
                   {!hierarchical && (stats?.final_score ?? stats?.current_score) != null && (
-                    <Stat label="Solver best" value={((stats!.final_score ?? stats!.current_score)! / 10000).toFixed(2)} />
+                    <Stat label="Scheduler's score" value={points((stats!.final_score ?? stats!.current_score)!)} />
                   )}
-                  {!hierarchical && verifyResult.best_bound != null && <Stat label="Overall optimum" value={(verifyResult.best_bound / 10000).toFixed(2)} />}
+                  {!hierarchical && verifyResult.best_bound != null && <Stat label="Best possible" value={points(verifyResult.best_bound)} />}
                   {!hierarchical && verifyResult.gap_percent != null && (
                     <Stat label="Gap" value={`${verifyResult.gap_percent.toFixed(1)}%`} />
                   )}
                   {verifyResult.gap_percent === 0 && (
                     <span className="flex items-center gap-1.5 text-green-600">
-                      <CheckCircle2 size={16} /> Optimal
+                      <CheckCircle2 size={16} /> Optimal: no better schedule exists
                     </span>
                   )}
                 </>
               ) : (
                 <span className="flex items-center gap-1.5 font-semibold text-red-700">
-                  <AlertCircle size={17} /> Infeasible schedule
+                  <AlertCircle size={17} />
+                  {verifyResult.violations.length === 1
+                    ? "This schedule doesn't work yet. There is 1 thing to fix."
+                    : `This schedule doesn't work yet. There are ${verifyResult.violations.length} things to fix.`}
                 </span>
               )}
             </div>
@@ -399,13 +435,13 @@ export default function RunPage() {
                 className="shrink-0 flex items-center gap-1.5 rounded-md border border-green-200 px-3 py-1.5 text-sm font-medium text-green-700 hover:border-green-400 transition-colors"
               >
                 <BarChart2 size={14} />
-                {showBreakdown ? 'Hide breakdown' : 'Score breakdown'}
+                {showBreakdown ? 'Hide Breakdown' : 'Score Breakdown'}
               </button>
             )}
           </div>
           {!verifyResult.feasible && verifyResult.violations.length > 0 && (
             <div className="mt-4">
-              <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-red-700">Violations</div>
+              <div className="mb-2 text-sm font-semibold uppercase tracking-wide text-red-700">What to fix</div>
               <ul className="list-disc space-y-1.5 pl-5 text-base text-red-800">
                 {verifyResult.violations.map((msg, i) => <li key={i}>{msg}</li>)}
               </ul>
@@ -439,6 +475,7 @@ export default function RunPage() {
             adjGroupB2bPenaltyCount={breakdown?.adjGroupB2bPenaltyCount ?? 0}
             adjGroupB2bPenaltyTrainers={breakdown?.adjGroupB2bPenaltyTrainers ?? []}
             trainerCount={breakdown?.trainerCount ?? 0}
+            groupRuleClashes={breakdown?.groupRuleClashes ?? []}
             settings={runSettings}
             data={solverData}
           />
@@ -448,8 +485,8 @@ export default function RunPage() {
       {/* Schedule grid */}
       {(hasResult || (editMode && editableSchedule.length > 0)) && data && (
         <ScheduleGrid
-          timeslots={solverData!.timeslots /* with the settings applied, e.g. court-specific times */}
-          courts={courts}
+          timeslots={solverData!.timeslots /* with the settings applied, e.g. space-specific times */}
+          spaces={spaces}
           result={result}
           groups={runSettings.genderedTeams ? data.groups : undefined /* no gender colours */}
           inProgress={inProgress}
@@ -461,44 +498,50 @@ export default function RunPage() {
         />
       )}
 
-      {!hasResult && jobStatus && !running && (
-        <p className="text-base text-gray-500">No schedule produced.</p>
+      {!hasResult && !running && todo.length === 0 && (
+        <div className="rounded-lg border border-dashed border-gray-300 bg-white px-6 py-10 text-center text-base text-gray-500">
+          {jobStatus
+            ? 'There is no schedule to show yet. Adjust your data or settings, then press Run again.'
+            : 'Press Run to build your schedule. You will see the best schedule so far while the scheduler works.'}
+        </div>
       )}
     </div>
   );
 }
 
+// A score in points, e.g. "60,500".
+function points(score: number): string {
+  return Math.round(score).toLocaleString();
+}
+
+// "1 group", "2 groups".
+function count(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
 function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    pending:    'bg-gray-100 text-gray-600',
-    processing: 'bg-blue-50 text-blue-600',
-    solving:    'bg-amber-50 text-amber-600',
-    completed:  'bg-green-50 text-green-700',
-    failed:     'bg-red-50 text-red-600',
-    cancelled:  'bg-gray-100 text-gray-600',
+  const badges: Record<string, { label: string; style: string }> = {
+    pending:    { label: 'Starting',    style: 'bg-gray-100 text-gray-600' },
+    processing: { label: 'Starting',    style: 'bg-blue-50 text-blue-600' },
+    solving:    { label: 'Running',     style: 'bg-amber-50 text-amber-600' },
+    completed:  { label: 'Finished',    style: 'bg-green-50 text-green-700' },
+    failed:     { label: 'No Schedule Found', style: 'bg-red-50 text-red-600' },
+    cancelled:  { label: 'Cancelled',   style: 'bg-gray-100 text-gray-600' },
   };
+  const badge = badges[status] ?? { label: status, style: 'bg-gray-100 text-gray-600' };
   return (
-    <span className={`rounded-full px-3 py-1 text-sm font-semibold capitalize ${styles[status] ?? 'bg-gray-100 text-gray-600'}`}>
-      {status}
+    <span className={`rounded-full px-3 py-1 text-sm font-semibold ${badge.style}`}>
+      {badge.label}
     </span>
   );
 }
 
-function Stat({ label, value, onClick }: { label: string; value: string | number; onClick?: () => void }) {
+function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
-    <span className="text-gray-500">
-      {label}:{' '}
-      {onClick ? (
-        <button
-          onClick={onClick}
-          className="font-medium text-gray-800 underline decoration-dashed underline-offset-2 hover:text-blue-600"
-          title="Click to see breakdown"
-        >
-          {value}
-        </button>
-      ) : (
-        <span className="font-medium text-gray-800">{value}</span>
-      )}
+    <span className="flex items-center gap-1.5 text-gray-500">
+      {label}:
+      <span className="font-medium text-gray-800">{value}</span>
+      {hint && <InfoHint label={label}>{hint}</InfoHint>}
     </span>
   );
 }

@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { FilePlus, FolderOpen, Upload, X } from 'lucide-react';
+import { BookOpen, FilePlus, FolderOpen, Sparkles, Upload, X } from 'lucide-react';
+import Guide from '@/components/Guide';
 import { listSchedules, listRecentSchedules, createSchedule, importSchedule } from '@/lib/api';
 import { ScheduleSummary } from '@/lib/types';
 
@@ -13,12 +14,13 @@ export default function Home() {
   const [allSchedules, setAllSchedules] = useState<ScheduleSummary[]>([]);
   const [newName, setNewName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [showGuide, setShowGuide] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     listRecentSchedules()
       .then(setRecent)
-      .catch(e => setError(`Could not load recent schedules: ${e.message}`));
+      .catch(e => setError(`Your recent schedules couldn't be loaded. ${e.message}`));
   }, []);
 
   function openSchedule(path: string) {
@@ -32,7 +34,7 @@ export default function Home() {
       setAllSchedules(schedules);
       setDialog('open');
     } catch (e) {
-      setError(`Could not list schedules: ${e instanceof Error ? e.message : e}`);
+      setError(`Your schedules couldn't be loaded. ${e instanceof Error ? e.message : e}`);
     }
   }
 
@@ -61,10 +63,26 @@ export default function Home() {
     }
   }
 
+  // The example ships with the app as a file. Opening it makes a copy in the schedules
+  // folder (like importing any other file), so the user can change and save it freely.
+  async function openExample() {
+    try {
+      const res = await fetch('/Example Schedule.doubleshift');
+      if (!res.ok) throw new Error("The example schedule couldn't be found.");
+      const schedule = await importSchedule(new File([await res.blob()], 'Example Schedule.doubleshift'));
+      openSchedule(schedule.path);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return (
     <main className="mx-auto w-full max-w-3xl px-8 py-20">
       <h1 className="text-4xl font-semibold text-gray-900 tracking-tight">DoubleShift</h1>
       <p className="mt-2 text-xl text-gray-500">Training Scheduler</p>
+      <p className="mt-4 max-w-xl text-base text-gray-600">
+        Build a training schedule that works for your groups, your trainers and your spaces.
+      </p>
 
       <div className="mt-10 flex flex-wrap gap-4">
         <button
@@ -83,6 +101,17 @@ export default function Home() {
         </button>
       </div>
 
+      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-base">
+        <button onClick={openExample} className="flex items-center gap-1.5 font-medium text-blue-600 hover:text-blue-700">
+          <Sparkles size={16} />
+          Open Example Schedule
+        </button>
+        <button onClick={() => setShowGuide(true)} className="flex items-center gap-1.5 font-medium text-blue-600 hover:text-blue-700">
+          <BookOpen size={16} />
+          Read the Guide
+        </button>
+      </div>
+
       {error && (
         <div className="mt-6 flex items-start justify-between gap-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
@@ -90,10 +119,10 @@ export default function Home() {
         </div>
       )}
 
-      <h2 className="mt-14 mb-4 text-base font-semibold text-gray-700">Recently Viewed</h2>
+      <h2 className="mt-14 mb-4 text-base font-semibold text-gray-700">Recently Opened</h2>
       {recent.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-gray-300 bg-white px-6 py-10 text-center text-sm text-gray-400">
-          No recently viewed schedules yet.
+        <div className="rounded-lg border border-dashed border-gray-300 bg-white px-6 py-8 text-center text-sm text-gray-500">
+          Schedules you open will appear here. To look around first, open the example schedule.
         </div>
       ) : (
         <ScheduleList schedules={recent} onOpen={openSchedule} />
@@ -107,7 +136,7 @@ export default function Home() {
               id="schedule-name"
               value={newName}
               onChange={e => setNewName(e.target.value)}
-              placeholder="e.g. Winter Term"
+              placeholder="Winter Term"
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-base focus:border-blue-500 focus:outline-none"
               autoFocus
             />
@@ -127,9 +156,9 @@ export default function Home() {
       {dialog === 'open' && (
         <Dialog title="Open Existing Schedule" onClose={() => setDialog(null)}>
           <div className="max-h-[60vh] overflow-y-auto px-5 py-4">
-            <p className="mb-4 break-all text-sm text-gray-500">Schedules saved in {folder}</p>
+            <p className="mb-4 break-all text-sm text-gray-500">Your schedules are saved in {folder}</p>
             {allSchedules.length === 0 ? (
-              <p className="py-6 text-center text-sm text-gray-400">No saved schedules yet.</p>
+              <p className="py-6 text-center text-sm text-gray-400">You have no saved schedules yet.</p>
             ) : (
               <ScheduleList schedules={allSchedules} onOpen={openSchedule} />
             )}
@@ -138,13 +167,14 @@ export default function Home() {
               className="mt-4 flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <Upload size={16} />
-              Open a file from elsewhere…
+              Open a File from Elsewhere
             </button>
           </div>
         </Dialog>
       )}
 
       <input ref={fileInputRef} type="file" accept=".doubleshift" onChange={handleImport} className="hidden" />
+      {showGuide && <Guide onClose={() => setShowGuide(false)} />}
     </main>
   );
 }

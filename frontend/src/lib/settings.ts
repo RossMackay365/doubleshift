@@ -1,27 +1,47 @@
 import { RewardSetting, ScheduleData, ScheduleSettings, expandLocations, slotRunsOn, slotsOverlap } from './types';
 
 // Every reward the solver supports (the keys must match REWARD_KEYS in the backend's
-// constraints.py), in default priority order. These are the only default points: the
-// backend has none and requires all of them. The penalty's points are subtracted.
+// constraints.py), in default priority order; onByDefault marks those a new schedule starts
+// with. These are the only default points: the backend has none and requires all of them.
+// The penalty's points are subtracted.
 export const REWARDS = [
   {
     key: 'REWARD_SAME_DAY',
     label: 'Same Day',
-    description: "A trainer's sessions (coaching, and playing in their own group) all fall on one day, so they only need to come in once.",
+    description: "Puts all of a trainer's sessions on one day, so they only need to come in once. This counts the sessions they train and their own group's session.",
     defaultPoints: 10_000,
+    onByDefault: true,
+  },
+  {
+    key: 'REWARD_NO_TRAVEL',
+    label: 'No Travel',
+    description: 'Keeps a trainer at one location for the whole day.',
+    defaultPoints: 100,
+    usesLocations: true,
+    onByDefault: true,
   },
   {
     key: 'PENALTY_WAIT_TIME',
     label: 'Minimise Wait Time',
-    description: 'Penalises every minute a trainer waits between their sessions on the same day.',
+    description: "Keeps a trainer's sessions close together. Counts every minute a trainer waits between sessions on the same day.",
     defaultPoints: 100,
     isPenalty: true,
     perMinute: true,
+    onByDefault: true,
+  },
+  {
+    key: 'PENALTY_GROUP_RULES',
+    label: 'Group Rules',
+    description: "Follows your preferred group rules. Counts every minute a group's members would miss of a session they want to attend, including travel time.",
+    defaultPoints: 100,
+    isPenalty: true,
+    perMinute: true,
+    usesGroupRules: true,
   },
   {
     key: 'PENALTY_ADJ_BLOCKED',
-    label: 'Trainer Cannot Sub Up',
-    description: 'Penalises a player-trainer coaching while the group one level above theirs is training, since they then can\'t fill in for it.',
+    label: 'Free to Fill In',
+    description: 'Keeps a trainer free while the group one level above their own trains, so they can fill in if needed.',
     defaultPoints: 10_000,
     isPenalty: true,
     usesLevels: true,
@@ -29,44 +49,58 @@ export const REWARDS = [
   {
     key: 'REWARD_ADJ_GROUP_B2B',
     label: 'Adjacent Groups Back-to-Back',
-    description: 'Groups one level apart train in consecutive sessions.',
+    description: 'Puts groups one level apart in sessions straight after each other.',
     defaultPoints: 5_000,
     usesLevels: true,
   },
   {
     key: 'REWARD_ADJ_GROUP_SAME_DAY',
     label: 'Adjacent Groups Same Day',
-    description: 'Groups one level apart train on the same day.',
+    description: 'Puts groups one level apart on the same day.',
     defaultPoints: 1_000,
     usesLevels: true,
   },
   {
-    key: 'REWARD_NO_TRAVEL',
-    label: 'No Travel',
-    description: 'A trainer stays at one location for the whole day.',
-    defaultPoints: 100,
-    usesLocations: true,
-  },
-  {
-    key: 'REWARD_NET_HEIGHT',
-    label: 'No Net Height Changes',
-    description: 'Consecutive sessions on the same court are for groups of the same gender, so the net needs no adjusting.',
+    key: 'REWARD_SAME_GENDER_B2B',
+    label: 'Same Gender Back-to-Back',
+    description: 'Keeps sessions for the same gender together in a space, so equipment and setup stay the same between sessions.',
     defaultPoints: 1,
     usesGender: true,
   },
 ];
 
-export const MIN_SOLVE_SECONDS = 10;
-export const MAX_SOLVE_SECONDS = 60 * 60;
+// A reward's name as shown to the user.
+export function rewardLabel(key: string): string {
+  return REWARDS.find(r => r.key === key)?.label ?? key;
+}
+
+// The choices for Max Solve Time (the backend accepts 10 seconds to 1 hour).
+export const SOLVE_TIME_OPTIONS = [
+  { seconds: 30, label: '30 seconds' },
+  { seconds: 60, label: '1 minute' },
+  { seconds: 120, label: '2 minutes' },
+  { seconds: 300, label: '5 minutes' },
+  { seconds: 600, label: '10 minutes' },
+  { seconds: 1800, label: '30 minutes' },
+  { seconds: 3600, label: '60 minutes' },
+];
+
+// The Max Solve Time choice closest to `seconds` (files saved before the choices existed
+// can hold any value).
+function nearestSolveTime(seconds: number): number {
+  return SOLVE_TIME_OPTIONS.reduce((best, o) =>
+    Math.abs(o.seconds - seconds) < Math.abs(best - seconds) ? o.seconds : best, SOLVE_TIME_OPTIONS[0].seconds);
+}
 
 export const DEFAULT_SETTINGS: ScheduleSettings = {
   maxSolveSeconds: 120,
   assignTrainers: false,
-  genderedTeams: true,
-  courtTimeslots: false,
-  nameCourts: false,
-  rewardMode: 'points',
-  rewards: REWARDS.map(r => ({ key: r.key, enabled: true, points: r.defaultPoints })),
+  genderedTeams: false,
+  spaceTimeslots: false,
+  nameSpaces: false,
+  groupRules: false,
+  rewardMode: 'hierarchical',
+  rewards: REWARDS.map(r => ({ key: r.key, enabled: !!r.onByDefault, points: r.defaultPoints })),
 };
 
 // Fill in anything missing from saved settings (e.g. a reward added since it was saved),
@@ -74,16 +108,20 @@ export const DEFAULT_SETTINGS: ScheduleSettings = {
 export function withDefaults(saved: Partial<ScheduleSettings> | null | undefined): ScheduleSettings {
   const savedRewards = (saved?.rewards ?? []).filter(r => REWARDS.some(def => def.key === r.key));
   const missing = DEFAULT_SETTINGS.rewards.filter(def => !savedRewards.some(r => r.key === def.key));
-  const rewardMode = saved?.rewardMode === 'hierarchical' ? 'hierarchical' : 'points';
-  return { ...DEFAULT_SETTINGS, ...saved, rewardMode, rewards: [...savedRewards, ...missing] };
+  const rewardMode = saved?.rewardMode === 'points' || saved?.rewardMode === 'hierarchical'
+    ? saved.rewardMode
+    : DEFAULT_SETTINGS.rewardMode;
+  const maxSolveSeconds = nearestSolveTime(saved?.maxSolveSeconds ?? DEFAULT_SETTINGS.maxSolveSeconds);
+  return { ...DEFAULT_SETTINGS, ...saved, maxSolveSeconds, rewardMode, rewards: [...savedRewards, ...missing] };
 }
 
 // Why a reward can't apply to this schedule, or null if it can. Gender-based rewards
-// need gendered teams, and No Travel needs more than one location to travel between.
+// need gendered groups, and No Travel needs more than one location to travel between.
 export function unavailableReason(settings: ScheduleSettings, data: ScheduleData | null, reward: RewardSetting): string | null {
   const def = REWARDS.find(r => r.key === reward.key);
-  if (def?.usesGender && !settings.genderedTeams) return 'Needs Gendered Teams';
-  if (def?.usesLocations && (data?.locations.length ?? 0) < 2) return 'Needs 2+ locations';
+  if (def?.usesGender && !settings.genderedTeams) return 'Needs Gendered Groups';
+  if (def?.usesLocations && (data?.locations.length ?? 0) < 2) return 'Needs two or more locations';
+  if (def?.usesGroupRules && !settings.groupRules) return 'Needs Group Rules';
   return null;
 }
 
@@ -128,19 +166,20 @@ export function levelsInUse(settings: ScheduleSettings, data: ScheduleData | nul
 
 // The data as the solver sees it under these settings. The saved data is never changed,
 // so switching a setting back restores the values the user entered.
-// - Teams not gendered: every group is treated as female and trainers use only their
+// - Groups not gendered: every group is treated as female and trainers use only their
 //   female level (the single "Level" column).
 // - Levels not in use: every group is level 1.
-// - Timeslots are limited by court (court-specific timeslots) or by location, not both.
-// - Courts not named: court names are ignored, so courts are numbered.
+// - Timeslots are limited by space (space-specific timeslots) or by location, not both.
+// - Spaces not named: space names are ignored, so spaces are numbered.
 export function applySettings(data: ScheduleData, settings: ScheduleSettings): ScheduleData {
   const useLevels = levelsInUse(settings, data);
   return {
     ...data,
-    locations: data.locations.map(l => (courtsNamed(settings) ? l : { ...l, courtNames: undefined })),
-    timeslots: data.timeslots.map(t => (settings.courtTimeslots
+    locations: data.locations.map(l => (spacesNamed(settings) ? l : { ...l, spaceNames: undefined })),
+    groupRules: settings.groupRules ? data.groupRules : undefined,
+    timeslots: data.timeslots.map(t => (settings.spaceTimeslots
       ? { ...t, location_bitmask: undefined }
-      : { ...t, courts: undefined })),
+      : { ...t, spaces: undefined })),
     groups: data.groups.map(g => ({
       ...g,
       gender: settings.genderedTeams ? g.gender : 'female',
@@ -148,47 +187,49 @@ export function applySettings(data: ScheduleData, settings: ScheduleSettings): S
     })),
     trainers: data.trainers.map(t => ({
       ...t,
-      gentsRank: settings.genderedTeams ? t.gentsRank : 0,
+      // A trainer with no level saved (e.g. in an older file) counts as level 1.
+      femaleLevel: t.femaleLevel ?? 1,
+      maleLevel: settings.genderedTeams ? t.maleLevel ?? 1 : 0,
     })),
   };
 }
 
-// Court names are in use when Name Courts is on, and always with court-specific timeslots
-// (where they're required, so the courts are easy to tell apart).
-export function courtsNamed(settings: ScheduleSettings): boolean {
-  return settings.nameCourts || settings.courtTimeslots;
+// Space names are in use when Name Spaces is on, and always with space-specific timeslots
+// (where they're required, so the spaces are easy to tell apart).
+export function spacesNamed(settings: ScheduleSettings): boolean {
+  return settings.nameSpaces || settings.spaceTimeslots;
 }
 
-// Problems with court names that block a run: with court-specific timeslots every court
+// Problems with space names that block a run: with space-specific timeslots every space
 // needs a name, and names must be unique within a location.
-export function courtNameProblems(data: ScheduleData, settings: ScheduleSettings): string[] {
-  if (!courtsNamed(settings)) return [];
+export function spaceNameProblems(data: ScheduleData, settings: ScheduleSettings): string[] {
+  if (!spacesNamed(settings)) return [];
   const problems: string[] = [];
   for (const loc of data.locations) {
-    const names = Array.from({ length: loc.courts }, (_, i) => loc.courtNames?.[i]?.trim() ?? '');
+    const names = Array.from({ length: loc.spaces }, (_, i) => loc.spaceNames?.[i]?.trim() ?? '');
     const unnamed = names.filter(n => !n).length;
-    if (settings.courtTimeslots && unnamed > 0) {
-      problems.push(`${loc.name}: ${unnamed} court${unnamed === 1 ? '' : 's'} not named`);
+    if (settings.spaceTimeslots && unnamed > 0) {
+      problems.push(`Name ${unnamed === 1 ? 'the space' : `the ${unnamed} spaces`} at ${loc.name} that ${unnamed === 1 ? "doesn't" : "don't"} have a name yet.`);
     }
     const duplicates = [...new Set(names.filter((n, i) => n && names.indexOf(n) !== i))];
-    if (duplicates.length > 0) problems.push(`${loc.name}: more than one court named ${duplicates.join(', ')}`);
+    if (duplicates.length > 0) problems.push(`Give each space at ${loc.name} its own name. More than one is called ${duplicates.join(', ')}.`);
   }
   return problems;
 }
 
-// Timeslots whose times overlap on the same court. A court can't run two sessions at once,
-// so overlapping timeslots must be on different courts; these block a run.
+// Timeslots whose times overlap on the same space. A space can't run two sessions at once,
+// so overlapping timeslots must be on different spaces; these block a run.
 export function timeslotClashes(data: ScheduleData, settings: ScheduleSettings): string[] {
   const { timeslots, locations } = applySettings(data, settings);
-  const courts = expandLocations(locations);
+  const spaces = expandLocations(locations);
   const locationNames = locations.map(l => l.name);
   const clashes: string[] = [];
   timeslots.forEach((a, i) => {
     for (const b of timeslots.slice(i + 1)) {
       if (!slotsOverlap(a, b)) continue;
-      const shared = courts.filter(c => slotRunsOn(a, c, locationNames) && slotRunsOn(b, c, locationNames));
+      const shared = spaces.filter(c => slotRunsOn(a, c, locationNames) && slotRunsOn(b, c, locationNames));
       if (shared.length > 0) {
-        clashes.push(`${a.day} ${a.start}–${a.finish} and ${b.start}–${b.finish} overlap on ${shared.map(c => c.courtName).join(', ')}`);
+        clashes.push(`${a.day} ${a.start}-${a.finish} and ${b.start}-${b.finish} overlap on ${shared.map(c => c.spaceName).join(', ')}`);
       }
     }
   });
