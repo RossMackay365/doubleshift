@@ -84,3 +84,9 @@ If you have more than one location, you can:
 ### Group Rules
 
 With the *Group Rules* setting on, the Data page gets a **Group Rules** tab. Each rule reads "members of these groups can attend those groups' sessions", for example when one group's members also want to join another group's session. A conflict is measured as the minutes of the other session they would miss while attending all of their own, including travel between locations. A rule is either **required** (the schedule must follow it) or **preferred** (each minute missed counts against the Group Rules reward).
+
+## License
+
+DoubleShift is free and open source under the GNU Affero General Public License v3.0 only (AGPL-3.0-only). See [LICENSE](LICENSE).
+
+You can use, change and share it. If you share a changed version, or run one for others over a network, you must release its source code under the same license.

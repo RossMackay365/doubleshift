@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { BookOpen, FilePlus, FolderOpen, Sparkles, Upload, X } from 'lucide-react';
-import Guide from '@/components/Guide';
+import Guide, { SOURCE_URL } from '@/components/Guide';
 import { listSchedules, listRecentSchedules, createSchedule, importSchedule } from '@/lib/api';
 import { ScheduleSummary } from '@/lib/types';
 
@@ -127,6 +127,13 @@ export default function Home() {
       ) : (
         <ScheduleList schedules={recent} onOpen={openSchedule} />
       )}
+
+      <footer className="mt-16 text-sm text-gray-400">
+        DoubleShift is free and open source under the AGPL-3.0 license.{' '}
+        <a href={SOURCE_URL} target="_blank" rel="noopener noreferrer" className="font-medium text-gray-500 underline hover:text-gray-700">
+          View the source code
+        </a>
+      </footer>
 
       {dialog === 'create' && (
         <Dialog title="Create New Schedule" onClose={() => setDialog(null)}>

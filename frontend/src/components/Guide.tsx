@@ -6,6 +6,11 @@ import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 // open. A list of sections on the left, one section shown at a time, with Previous and Next
 // links to read it in order. Opened from the home page and from the header.
 
+// Where the app's source code lives. The AGPL asks that users can find it, so anyone who
+// shares a changed version should point this at their own source.
+export const SOURCE_URL = 'https://github.com/RossMackay365/doubleshift';
+const LINK_CLASS = 'font-medium text-blue-600 hover:text-blue-700';
+
 const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
   {
     id: 'quick-start',
@@ -254,6 +259,33 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
         <p>
           DoubleShift only saves when you press Save. It asks before you leave a schedule with
           changes you haven&apos;t saved.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: 'about',
+    title: 'About',
+    body: (
+      <>
+        <p>
+          DoubleShift is free and open source. You can use it, change it and share it under
+          the{' '}
+          <a href={`${SOURCE_URL}/blob/main/LICENSE`} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
+            GNU Affero General Public License v3.0
+          </a>
+          . The source code is available on{' '}
+          <a href={SOURCE_URL} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
+            GitHub
+          </a>
+          .
+        </p>
+        <p>
+          Found a problem or have an idea? Tell us on{' '}
+          <a href={`${SOURCE_URL}/issues`} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
+            GitHub Issues
+          </a>
+          .
         </p>
       </>
     ),
