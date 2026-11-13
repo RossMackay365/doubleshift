@@ -1,0 +1,4 @@
+# For the desktop app (desktop.py) and building DoubleShift.exe. Docker only needs requirements.txt.
+-r requirements.txt
+pywebview>=6.2,<7
+pyinstaller

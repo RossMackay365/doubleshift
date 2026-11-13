@@ -1,8 +1,6 @@
 services:
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+  doubleshift:
+    build: .
     ports:
       - "8000:8000"
     environment:
@@ -21,20 +19,6 @@ services:
     mem_limit: 1500m
     mem_reservation: 512m
     memswap_limit: 1500m
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_BACKEND_API_URL: http://localhost:8000
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-    restart: unless-stopped
-    mem_limit: 512m
-    mem_reservation: 128m
 
 volumes:
   doubleshift-data:

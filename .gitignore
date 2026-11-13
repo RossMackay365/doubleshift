@@ -48,3 +48,11 @@ Thumbs.db
 
 # --- Claude ---
 /.claude/
+# Desktop app build output
+backend/build/
+backend/dist/
+
+# Packaging output (build-msix.ps1)
+/dist/
+/build/
+*.pfx

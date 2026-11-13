@@ -5,6 +5,7 @@ import { getSchedule, saveSchedule, startSolve, getJobStatus, cancelSolve } from
 import { DEFAULT_SETTINGS, withDefaults, withUnavailableOff } from '@/lib/settings';
 import { JobStatus, ScheduleContents, ScheduleData, ScheduleSettings } from '@/lib/types';
 import ScheduleNotFound from '@/components/ScheduleNotFound';
+import { desktopApi } from '@/lib/desktop';
 
 const POLL_MS = 1000;
 const DONE = new Set(['completed', 'failed', 'cancelled']);
@@ -208,17 +209,25 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
 
   // Ask before leaving the schedule with unsaved changes or a run in progress: closing/
   // reloading the window, or clicking a link out of it (Home). Switching tabs is fine.
+  const leaveWarning = running
+    ? 'The scheduler is still running. If you leave now, it stops. Leave anyway?'
+    : isModified ? "You have changes you haven't saved. Leave without saving?" : '';
+
+  // The desktop app's window closes without the browser's leave check, so the launcher
+  // asks instead, using the warning it's given here ('' for no warning).
+  useEffect(() => { desktopApi()?.set_leave_warning(leaveWarning); }, [leaveWarning]);
+  useEffect(() => () => { desktopApi()?.set_leave_warning(''); }, []);
+
   useEffect(() => {
-    if (!isModified && !running) return;
-    const warning = running
-      ? 'The scheduler is still running. If you leave now, it stops. Leave anyway?'
-      : "You have changes you haven't saved. Leave without saving?";
+    if (!leaveWarning) return;
+    const warning = leaveWarning;
     function onBeforeUnload(e: BeforeUnloadEvent) {
       e.preventDefault();
     }
     function onLinkClick(e: MouseEvent) {
       const link = (e.target as HTMLElement).closest('a');
-      if (!link || ['/data', '/run', '/settings'].includes(link.pathname)) return;
+      // Page URLs end in a slash in the built app (/data/), but not in `npm run dev`.
+      if (!link || ['/data', '/run', '/settings'].includes(link.pathname.replace(/\/$/, ''))) return;
       if (!confirm(warning)) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -230,7 +239,7 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
       window.removeEventListener('beforeunload', onBeforeUnload);
       document.removeEventListener('click', onLinkClick, true);
     };
-  }, [isModified, running]);
+  }, [leaveWarning]);
 
   if (loadError) return <ScheduleNotFound message={`This schedule couldn't be opened. ${loadError}`} />;
   if (status === 'notFound') return <ScheduleNotFound />;

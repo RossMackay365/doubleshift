@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="RossMackay.DoubleShiftTrainingScheduler"
+    Publisher="CN=49F2D1E3-6EDE-46CA-82BB-506C1D2D232C"
+    Version="0.0.0.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>DoubleShift: Training Scheduler</DisplayName>
+    <PublisherDisplayName>Ross Mackay</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="DoubleShift" Executable="DoubleShift.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="DoubleShift: Training Scheduler"
+        Description="Build a training schedule that works for your groups, your trainers and your spaces."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <!-- Double-clicking a .doubleshift file opens it in DoubleShift (desktop.py reads the path). -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="doubleshift">
+            <uap:DisplayName>DoubleShift Schedule</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.doubleshift</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- A desktop app (Python, a local server and a WebView2 window), not a sandboxed one. -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

@@ -1,18 +1,18 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
-import { Geist } from 'next/font/google';
+// The font ships with the app (the geist package uses next/font/local), so builds and the
+// app never need the internet for it.
+import { GeistSans } from 'geist/font/sans';
 import './globals.css';
-
-const geist = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'DoubleShift: Training Scheduler',
-  description: 'Training session scheduler',
+  description: 'Build a training schedule that works for your groups, your trainers and your spaces.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geist.variable} h-full antialiased`}>
+    <html lang="en" className={`${GeistSans.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col bg-gray-50">
         {/* Suspense is required for pages that read ?file= from the URL (useSearchParams) in a static build. */}
         <Suspense>{children}</Suspense>

@@ -1,5 +1,8 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import os
+import sys
 import uuid
 from .schemas import (
     SolveRequest, JobStatusResponse, VerifyRequest, VerifyResponse,
@@ -159,3 +162,21 @@ def save_schedule(path: str, request: ScheduleContents):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return {"ok": True}
+
+
+# --- The app itself ---
+# The frontend's static build (frontend/out) is served at /, after the API routes so they
+# take priority. It's bundled with the desktop app, copied into the Docker image, and
+# DOUBLESHIFT_FRONTEND_DIR overrides where to find it. With no build (e.g. while using
+# `npm run dev`), only the API runs.
+
+def _frontend_dir():
+    if os.getenv("DOUBLESHIFT_FRONTEND_DIR"):
+        return os.getenv("DOUBLESHIFT_FRONTEND_DIR")
+    if getattr(sys, "frozen", False):
+        return os.path.join(sys._MEIPASS, "frontend")
+    return os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "out")
+
+
+if os.path.isdir(_frontend_dir()):
+    app.mount("/", StaticFiles(directory=_frontend_dir(), html=True), name="frontend")

@@ -23,9 +23,13 @@ backend/
 │   ├── diagnostics.py  # Post-INFEASIBLE analysis: diagnoses likely causes
 │   ├── schedules.py    # Saved schedules (.doubleshift files) and the recently opened list
 │   └── state.py        # In-memory job state (thread-safe)
+├── desktop.py           # The desktop app: runs the backend on 127.0.0.1 and opens a window
+├── doubleshift.spec     # PyInstaller build of the desktop app
 ├── requirements.txt
-├── Dockerfile
+└── requirements-desktop.txt   # requirements.txt plus pywebview and PyInstaller
 ```
+
+The backend also serves the frontend's static build at `/` when it finds one (`frontend/out`, the copy bundled in the desktop app, or `DOUBLESHIFT_FRONTEND_DIR`).
 
 ## Running Locally
 
@@ -46,6 +50,7 @@ API docs are available at http://localhost:8000/docs once running.
 |---|---|---|---|
 | `DOUBLESHIFT_SCHEDULES_DIR` | No | `Documents\DoubleShift` | Where `.doubleshift` files are saved |
 | `DOUBLESHIFT_DATA_DIR` | No | per-user app data folder | Where the recently opened list is kept |
+| `DOUBLESHIFT_FRONTEND_DIR` | No | `frontend/out` | The frontend's static build to serve at `/` |
 | `SOLVER_WORKERS` | No | `0` (all cores) | CP-SAT worker threads |
 
 The solver time limit comes from each schedule's Scheduler Settings (`max_solve_seconds` in the solve request, 10 to 3600, default 120).

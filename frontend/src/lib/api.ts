@@ -4,7 +4,9 @@ import {
 } from './types';
 import { applySettings, rankedRewards, rewardsPayload } from './settings';
 
-const API_BASE = process.env.NEXT_PUBLIC_BACKEND_API_URL ?? 'http://localhost:8000';
+// The backend serves the app, so API calls go to the same origin. Only `npm run dev`
+// (a separate server) needs NEXT_PUBLIC_BACKEND_API_URL to point at the backend.
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_API_URL ?? '';
 
 // Prepare data for the solver: apply the settings (see applySettings), auto-generate
 // IDs, expand locations into spaces, and resolve group names (Member Of, Training

@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { BookOpen, FilePlus, FolderOpen, Sparkles, Upload, X } from 'lucide-react';
 import Guide, { SOURCE_URL } from '@/components/Guide';
 import { listSchedules, listRecentSchedules, createSchedule, importSchedule } from '@/lib/api';
+import { desktopApi } from '@/lib/desktop';
 import { ScheduleSummary } from '@/lib/types';
 
 export default function Home() {
@@ -22,13 +23,20 @@ export default function Home() {
       .then(setRecent)
       .catch(e => setError(`Your recent schedules couldn't be loaded. ${e.message}`));
   }, []);
-
   function openSchedule(path: string) {
     router.push(`/data?file=${encodeURIComponent(path)}`);
   }
 
   async function showOpenDialog() {
     try {
+      // Desktop app: the Windows Open dialog, starting in the schedules folder.
+      const desktop = desktopApi();
+      if (desktop) {
+        const path = await desktop.choose_schedule();
+        if (path) openSchedule(path);
+        return;
+      }
+      // Browser: a list of the files in the schedules folder.
       const { folder, schedules } = await listSchedules();
       setFolder(folder);
       setAllSchedules(schedules);

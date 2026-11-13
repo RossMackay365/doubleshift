@@ -18,26 +18,40 @@ Each schedule (its data, its settings and the last run) is saved as a `.doublesh
 docker compose up
 ```
 
-| Service  | URL                    |
-|----------|------------------------|
-| Frontend | http://localhost:3000  |
-| Backend  | http://localhost:8000  |
-| API docs | http://localhost:8000/docs |
+Open http://localhost:8000 for the app, or http://localhost:8000/docs for the API docs.
 
-## Running Without Docker
+## Desktop App
 
-See [backend/README.md](backend/README.md) and [frontend/README.md](frontend/README.md) for per-service instructions.
+The Windows app runs the same backend on this computer only, and shows the app in its own window ([pywebview](https://pywebview.flowrl.com/) with Windows' built-in WebView2).
+
+To build the app and its MSIX package for the Microsoft Store:
+
+```powershell
+.\build-msix.ps1
+```
+
+The app is in `dist\DoubleShift` and the package is `dist\DoubleShift-<version>.msix`. See [packaging/README.md](packaging/README.md) for the one-time setup, the logos, testing and releasing.
+
+To try the app without building it, build the frontend (`npm run build` in `frontend`), then run `.\venv\Scripts\python.exe desktop.py` in `backend`. The app keeps a log in its app data folder (`doubleshift.log`).
+
+## Development
+
+Run the backend and frontend separately to get live reloading. See [backend/README.md](backend/README.md) and [frontend/README.md](frontend/README.md).
 
 ## Architecture
 
 ```
 doubleshift/
 ├── backend/            # FastAPI + OR-Tools: the scheduler and the schedule checks
+│   └── desktop.py      # The desktop app: backend plus a window
 ├── frontend/           # Next.js: data entry, schedule calendar, editing, guide
-└── docker-compose.yml  # local dev orchestration
+├── packaging/          # MSIX manifest, logos, third party notices script
+├── build-msix.ps1      # Builds the desktop app and its MSIX package
+├── Dockerfile          # One image: the frontend build served by the backend
+└── docker-compose.yml
 ```
 
-The two services communicate over HTTP. The frontend sends a JSON payload to `POST /api/solve`, receives a `job_id`, and polls `GET /api/status/{job_id}` until the scheduler finishes or reaches its time limit. A separate `POST /api/verify` endpoint checks hand-edited schedules against every rule. The backend runs [Google OR-Tools CP-SAT](https://developers.google.com/optimization/reference/python/sat/python/cp_model) in a separate process.
+The frontend is a static site (`output: 'export'`) that the backend serves at `/`, with the API under `/api`. The frontend sends a JSON payload to `POST /api/solve`, receives a `job_id`, and polls `GET /api/status/{job_id}` until the scheduler finishes or reaches its time limit. A separate `POST /api/verify` endpoint checks hand-edited schedules against every rule. The backend runs [Google OR-Tools CP-SAT](https://developers.google.com/optimization/reference/python/sat/python/cp_model) in a separate process.
 
 ## Key Concepts
 

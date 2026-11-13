@@ -39,7 +39,7 @@ frontend/src/
 cd frontend
 npm install
 
-# Point at your local backend (default shown below)
+# Point at your local backend (see the backend README)
 echo "NEXT_PUBLIC_BACKEND_API_URL=http://localhost:8000" > .env.local
 
 npm run dev
@@ -47,11 +47,19 @@ npm run dev
 
 Open http://localhost:3000.
 
+`npm run build` makes a static site in `frontend/out` (`output: 'export'` in `next.config.ts`). The backend serves it in Docker and in the desktop app, so a build has no server of its own and calls the API on the same origin. That means no dynamic routes, no server code and no API routes in Next.js: pages read the open schedule from `?file=`.
+
+The font (Geist) comes from the `geist` package, which bundles the font files, so builds never download it.
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `NEXT_PUBLIC_BACKEND_API_URL` | Yes | `http://localhost:8000` | Backend base URL |
+| `NEXT_PUBLIC_BACKEND_API_URL` | Only for `npm run dev` | same origin | Backend base URL |
+
+## Desktop App
+
+In the desktop app, `backend/desktop.py` gives the page a few functions as `window.pywebview.api` (`lib/desktop.ts`). **Open Existing Schedule** uses the Windows Open dialog in the schedules folder; in a browser it shows the in-page list of the schedules folder instead. `ScheduleProvider` also passes its leave warning to the launcher, which asks before the window closes with unsaved changes or a run in progress.
 
 ## Key Concepts
 

@@ -1,0 +1,13 @@
+**/node_modules
+**/.next
+**/out
+**/__pycache__
+**/*.pyc
+**/venv
+**/.venv
+**/.env*
+backend/build
+backend/dist
+schedules
+.git
+.claude
