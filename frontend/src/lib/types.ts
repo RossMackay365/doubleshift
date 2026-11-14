@@ -165,7 +165,7 @@ export function expandLocations(locations: Location[]): Space[] {
   );
 }
 
-// --- Timeslot helpers (mirroring the backend's constraints.py) ---
+// Timeslot helpers (mirroring the backend's constraints.py)
 
 // "HH:MM" -> minutes since midnight (0 if not a valid time).
 export function toMinutes(hhmm: string): number {

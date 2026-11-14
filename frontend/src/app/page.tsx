@@ -75,19 +75,12 @@ export default function Home() {
   }
 
   return (
-    // The art (logo and name) fills 60% on the left; everything you do is in a centred column
-    // on the right, with the licence line at the very bottom. Narrow browser windows show only
-    // the right side. The page is exactly the window's height, so the art (which scales to
-    // fill its panel) never grows past the window; if the right side runs out of room, only
-    // it scrolls.
     <main className="flex h-dvh">
       <div className="relative hidden w-[60%] shrink-0 lg:block">
         <Image src={art} alt="DoubleShift: Training Scheduler" fill priority sizes="60vw" className="object-cover" />
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-8 py-8 lg:px-10">
-        {/* my-auto centres the column, and still lets it scroll from the top when it's taller
-            than the window (items-center would cut off its top). */}
         <div className="flex flex-1 justify-center">
           <div className="my-auto w-full max-w-md">
             <h1 className="text-3xl font-semibold tracking-tight text-gray-900">Welcome to DoubleShift!</h1>
@@ -129,7 +122,6 @@ export default function Home() {
               <ScheduleList schedules={recent} onOpen={openSchedule} />
             )}
 
-            {/* Help for first-timers comes last, out of the way of people who know the app. */}
             <div className="mt-8 border-t border-gray-200 pt-6">
               <h2 className="text-base font-semibold text-gray-800">First Time?</h2>
               <button

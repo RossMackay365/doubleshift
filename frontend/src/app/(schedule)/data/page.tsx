@@ -8,7 +8,6 @@ import { Space, Location, ScheduleData, TravelTime, expandLocations, sortDays, t
 
 type Tab = 'locations' | 'timeslots' | 'groups' | 'trainers' | 'groupRules';
 
-// The tabs in the order to fill them in, each with a line saying what it is for.
 const TABS: { id: Tab; label: string; intro: string }[] = [
   {
     id: 'locations', label: 'Locations',
@@ -54,7 +53,7 @@ const BASE_COLUMNS: Record<Tab, Column[]> = {
     { key: 'name',       header: 'Name',         placeholder: 'Sam Taylor', width: '200px' },
     { key: 'capacity',   header: 'Capacity',      type: 'number', placeholder: '1', width: '120px', hint: 'The most groups this trainer can train.' },
   ],
-  groupRules: [], // built in the page, from the current groups
+  groupRules: [],
 };
 
 // Trainer level columns: one per gender, or a single Level (stored as the female
@@ -159,13 +158,11 @@ function pastedGroupNames(raw: string, groupNames: string[], exclude: string[] =
 }
 
 // Carries renames over to references. refs[i] is the name references to item i currently
-// use and names[i] its new name; renamed collects old -> new. An item whose new name is
-// blank or shared with another item keeps its old reference until its name is unique
-// again (e.g. typing "Men 10" next to "Men 1"), so two items' references never merge.
+// use and names[i] its new name; renamed collects old -> new.
 function carryRenames(refs: string[], names: string[], renamed: Map<string, string>): string[] {
   return names.map((name, i) => {
     const old = refs[i];
-    if (old === undefined) return name;                                            // just added
+    if (old === undefined) return name; // Handle New Additions
     if (!name.trim() || names.indexOf(name) !== names.lastIndexOf(name)) return old;
     if (old !== name) renamed.set(old, name);
     return name;
@@ -188,8 +185,6 @@ function rowsToData(rows: RowMap): Omit<ScheduleData, 'travelTimes'> {
   };
 
   const locations = rowsToLocations(rows.locations);
-  // Space names that no longer exist (e.g. after renaming a location) are dropped, so a
-  // timeslot never silently runs on no space at all.
   const spaceNames = new Set(expandLocations(locations).map(c => c.spaceName));
   const groupNames = new Set(rows.groups.map(r => r.name).filter(Boolean));
 
@@ -305,8 +300,7 @@ function Chip({
 
 // Availability per timeslot: one line per day, with that day's slots in start-time order
 // as toggle chips showing their full times. Click a time to toggle it, or the day to toggle
-// the whole day. `shown` limits which timeslots appear (e.g. a group sees only those at its
-// locations); hidden ones keep their stored availability.
+// the whole day.
 function AvailabilityCell({
   value, onChange, timeslots, shown,
 }: {
@@ -858,10 +852,6 @@ export default function DataPage() {
     };
   }, [settings, data, availabilityColumn, groupAvailabilityColumn, playerGroupColumn, trainingGroupsColumn, locationColumn, spacesColumn, spaceNamesColumn, groupRuleColumns]);
 
-  // Renames carry over to everything that refers to the renamed item (see carryRenames):
-  // a space or location's timeslot ticks, and a group's Member Of, Training Groups and
-  // group rule references. spaceRefs[i][j] and groupRefs[i] are the names those references
-  // currently use, by row position; adding or removing rows starts tracking afresh.
   const spaceRefs = useRef<string[][]>(rows.locations.map(spaceIdsOf));
   const groupRefs = useRef<string[]>(rows.groups.map(r => r.name ?? ''));
 

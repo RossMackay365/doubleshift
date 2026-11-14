@@ -1,13 +1,6 @@
 import Nav from '@/components/Nav';
 import ScheduleProvider from '@/components/ScheduleProvider';
 
-// Shared by the pages of an open schedule (/data, /run and /settings). The route group
-// folder "(schedule)" doesn't appear in URLs.
-//
-// The header stays at the top and only the page below it scrolls, so the scrollbar starts
-// under the header. The page always keeps room for the scrollbar (scrollbar-gutter), so
-// switching between a page that scrolls and one that doesn't never shifts it sideways; Nav
-// keeps the same room, so the header lines up with the page.
 export default function ScheduleLayout({ children }: { children: React.ReactNode }) {
   return (
     <ScheduleProvider>

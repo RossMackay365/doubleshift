@@ -51,8 +51,6 @@ function withIDs(rawData: ScheduleData, settings: ScheduleSettings) {
   };
 }
 
-// Sends a request to the backend. Failures throw an Error whose message is written for the
-// user: the backend's own message (its `detail`) when it has one.
 async function request(path: string, init?: RequestInit, allow404 = false): Promise<Response> {
   let res: Response;
   try {
@@ -67,7 +65,6 @@ async function request(path: string, init?: RequestInit, allow404 = false): Prom
 async function throwError(res: Response): Promise<never> {
   const body = await res.json().catch(() => null);
   if (typeof body?.detail === 'string') throw new Error(body.detail);
-  // The backend rejected the data's shape (it lists the fields, which wouldn't help here).
   if (res.status === 422) throw new Error("Some of your data isn't filled in the way the scheduler expects. Please check the Data page and try again.");
   throw new Error('Something went wrong. Please try again.');
 }
@@ -111,7 +108,7 @@ export async function verifySchedule(
   return res.json();
 }
 
-// --- Saved schedules (.doubleshift files, identified by their path) ---
+// SAVED SCHEDULES API
 
 export async function listSchedules(): Promise<{ folder: string; schedules: ScheduleSummary[] }> {
   const res = await request('/api/schedules');
@@ -128,7 +125,6 @@ export async function createSchedule(name: string): Promise<ScheduleSummary> {
   return res.json();
 }
 
-// Copies a .doubleshift file chosen in the browser into the schedules folder.
 export async function importSchedule(file: File): Promise<ScheduleSummary> {
   let parsed;
   try {
@@ -140,7 +136,6 @@ export async function importSchedule(file: File): Promise<ScheduleSummary> {
   return res.json();
 }
 
-// Returns null if the file doesn't exist. Also marks it as recently opened.
 export async function getSchedule(path: string): Promise<SavedSchedule | null> {
   const res = await request(`/api/schedule?path=${encodeURIComponent(path)}`, undefined, true);
   if (res.status === 404) return null;
@@ -151,8 +146,7 @@ export async function saveSchedule(path: string, contents: ScheduleContents): Pr
   await request(`/api/schedule?path=${encodeURIComponent(path)}`, json('PUT', contents));
 }
 
-// Sends the file to the Recycle Bin (deletes it for good where there's none, e.g. Docker),
-// and takes it off the recent list.
+// Sends the file to the Recycle Bin (permanently deletes for Docker), and removes from recently opened list.
 export async function deleteSchedule(path: string): Promise<void> {
   await request(`/api/schedule?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
 }

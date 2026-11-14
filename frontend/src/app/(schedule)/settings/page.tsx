@@ -123,7 +123,7 @@ function ConfirmDelete({ name, path, onCancel }: { name: string; path: string; o
     setDeleting(true);
     try {
       await deleteSchedule(path);
-      router.push('/'); // leaving also stops any run in progress
+      router.push('/');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setDeleting(false);

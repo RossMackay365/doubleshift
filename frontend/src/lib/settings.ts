@@ -1,9 +1,5 @@
 import { RewardSetting, ScheduleData, ScheduleSettings, expandLocations, slotRunsOn, slotsOverlap } from './types';
 
-// Every reward the solver supports (the keys must match REWARD_KEYS in the backend's
-// constraints.py), in default priority order; onByDefault marks those a new schedule starts
-// with. These are the only default points: the backend has none and requires all of them.
-// The penalty's points are subtracted.
 export const REWARDS = [
   {
     key: 'REWARD_SAME_DAY',
@@ -69,12 +65,10 @@ export const REWARDS = [
   },
 ];
 
-// A reward's name as shown to the user.
 export function rewardLabel(key: string): string {
   return REWARDS.find(r => r.key === key)?.label ?? key;
 }
 
-// The choices for Max Solve Time (the backend accepts 10 seconds to 1 hour).
 export const SOLVE_TIME_OPTIONS = [
   { seconds: 30, label: '30 seconds' },
   { seconds: 60, label: '1 minute' },
@@ -84,13 +78,6 @@ export const SOLVE_TIME_OPTIONS = [
   { seconds: 1800, label: '30 minutes' },
   { seconds: 3600, label: '60 minutes' },
 ];
-
-// The Max Solve Time choice closest to `seconds` (files saved before the choices existed
-// can hold any value).
-function nearestSolveTime(seconds: number): number {
-  return SOLVE_TIME_OPTIONS.reduce((best, o) =>
-    Math.abs(o.seconds - seconds) < Math.abs(best - seconds) ? o.seconds : best, SOLVE_TIME_OPTIONS[0].seconds);
-}
 
 export const DEFAULT_SETTINGS: ScheduleSettings = {
   maxSolveSeconds: 120,
@@ -103,20 +90,17 @@ export const DEFAULT_SETTINGS: ScheduleSettings = {
   rewards: REWARDS.map(r => ({ key: r.key, enabled: !!r.onByDefault, points: r.defaultPoints })),
 };
 
-// Fill in anything missing from saved settings (e.g. a reward added since it was saved),
-// keeping the saved order of the rewards it does have.
+// Complete Any Missing Settings with Defaults
 export function withDefaults(saved: Partial<ScheduleSettings> | null | undefined): ScheduleSettings {
   const savedRewards = (saved?.rewards ?? []).filter(r => REWARDS.some(def => def.key === r.key));
   const missing = DEFAULT_SETTINGS.rewards.filter(def => !savedRewards.some(r => r.key === def.key));
   const rewardMode = saved?.rewardMode === 'points' || saved?.rewardMode === 'hierarchical'
     ? saved.rewardMode
     : DEFAULT_SETTINGS.rewardMode;
-  const maxSolveSeconds = nearestSolveTime(saved?.maxSolveSeconds ?? DEFAULT_SETTINGS.maxSolveSeconds);
-  return { ...DEFAULT_SETTINGS, ...saved, maxSolveSeconds, rewardMode, rewards: [...savedRewards, ...missing] };
+  return { ...DEFAULT_SETTINGS, ...saved, rewardMode, rewards: [...savedRewards, ...missing] };
 }
 
-// Why a reward can't apply to this schedule, or null if it can. Gender-based rewards
-// need gendered groups, and No Travel needs more than one location to travel between.
+// Provide Reason for Unavailable Reward
 export function unavailableReason(settings: ScheduleSettings, data: ScheduleData | null, reward: RewardSetting): string | null {
   const def = REWARDS.find(r => r.key === reward.key);
   if (def?.usesGender && !settings.genderedTeams) return 'Needs Gendered Groups';
@@ -125,39 +109,30 @@ export function unavailableReason(settings: ScheduleSettings, data: ScheduleData
   return null;
 }
 
-// Rewards that can't apply are always stored as switched off, so one that becomes
-// available again (e.g. a second location is added) starts in Off, never In Use.
-// Returns the same object when nothing needs changing.
+// Ensures Rewards That Become Available Default to Off
 export function withUnavailableOff(settings: ScheduleSettings, data: ScheduleData | null): ScheduleSettings {
   const switchOff = (r: RewardSetting) => r.enabled && unavailableReason(settings, data, r) !== null;
   if (!settings.rewards.some(switchOff)) return settings;
   return { ...settings, rewards: settings.rewards.map(r => (switchOff(r) ? { ...r, enabled: false } : r)) };
 }
 
-// A reward counts only if it's switched on and can apply to this schedule.
 export function isRewardActive(settings: ScheduleSettings, data: ScheduleData | null, reward: RewardSetting): boolean {
   return reward.enabled && unavailableReason(settings, data, reward) === null;
 }
 
-// Points the solver should use for a reward: 0 if it doesn't count.
 export function rewardPoints(settings: ScheduleSettings, data: ScheduleData | null, key: string): number {
   const reward = settings.rewards.find(r => r.key === key);
   return reward && isRewardActive(settings, data, reward) ? reward.points : 0;
 }
 
-// The rewards that count, in priority order (the order the hierarchical solver uses).
 export function rankedRewards(settings: ScheduleSettings, data: ScheduleData | null): RewardSetting[] {
   return settings.rewards.filter(r => isRewardActive(settings, data, r));
 }
 
-// The reward points as sent to the backend: { REWARD_KEY: points }.
 export function rewardsPayload(settings: ScheduleSettings, data: ScheduleData): Record<string, number> {
   return Object.fromEntries(settings.rewards.map(r => [r.key, rewardPoints(settings, data, r.key)]));
 }
 
-// Group levels decide which trainers qualify for which groups, and are used by the
-// level-based rewards. When trainers are assigned to groups and none of those rewards
-// count, levels aren't needed at all (and the Level column is hidden).
 export function levelsInUse(settings: ScheduleSettings, data: ScheduleData | null): boolean {
   return !settings.assignTrainers || settings.rewards.some(
     r => REWARDS.find(def => def.key === r.key)?.usesLevels && isRewardActive(settings, data, r),
@@ -187,21 +162,17 @@ export function applySettings(data: ScheduleData, settings: ScheduleSettings): S
     })),
     trainers: data.trainers.map(t => ({
       ...t,
-      // A trainer with no level saved (e.g. in an older file) counts as level 1.
+      // A trainer with no level saved counts as level 1.
       femaleLevel: t.femaleLevel ?? 1,
       maleLevel: settings.genderedTeams ? t.maleLevel ?? 1 : 0,
     })),
   };
 }
 
-// Space names are in use when Name Spaces is on, and always with space-specific timeslots
-// (where they're required, so the spaces are easy to tell apart).
 export function spacesNamed(settings: ScheduleSettings): boolean {
   return settings.nameSpaces || settings.spaceTimeslots;
 }
 
-// Problems with space names that block a run: with space-specific timeslots every space
-// needs a name, and names must be unique within a location.
 export function spaceNameProblems(data: ScheduleData, settings: ScheduleSettings): string[] {
   if (!spacesNamed(settings)) return [];
   const problems: string[] = [];
@@ -217,8 +188,6 @@ export function spaceNameProblems(data: ScheduleData, settings: ScheduleSettings
   return problems;
 }
 
-// Timeslots whose times overlap on the same space. A space can't run two sessions at once,
-// so overlapping timeslots must be on different spaces; these block a run.
 export function timeslotClashes(data: ScheduleData, settings: ScheduleSettings): string[] {
   const { timeslots, locations } = applySettings(data, settings);
   const spaces = expandLocations(locations);

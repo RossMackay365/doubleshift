@@ -43,14 +43,9 @@ export default function Nav() {
     }`;
 
   return (
-    // In the desktop app the window buttons sit in the top 32px (WindowControls), so the
-    // header's content moves down by that much. The header keeps the same room for a
-    // scrollbar as the page below it (see the schedule layout), so the two line up.
     <nav className="relative shrink-0 overflow-y-hidden border-b border-gray-200 bg-white [scrollbar-gutter:stable] desktop:pt-8">
       {/* The logo sits in the space left of the content, centred between the window's edge and
-          the start of "DoubleShift" (that space is the 2rem padding, plus half of whatever the
-          window has beyond the 80rem content width). The name still lines up with the page
-          below. Narrow windows leave too little space, so they don't show it. */}
+          the start of "DoubleShift". Narrow windows leave too little space, so they don't show it. */}
       <Link
         href="/"
         className="absolute bottom-0 hidden h-24 -translate-x-1/2 items-center min-[1328px]:flex"

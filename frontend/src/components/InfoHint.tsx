@@ -5,8 +5,7 @@ import { Info } from 'lucide-react';
 const WIDTH = 288;
 
 // A small "i" button that opens a short explanation next to it. Click it again, click
-// anywhere else, scroll or press Escape to close. The box is positioned on the page
-// rather than inside its parent, so tables that scroll never cut it off.
+// anywhere else, scroll or press Escape to close.
 export default function InfoHint({ label, children }: { label: string; children: React.ReactNode }) {
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);

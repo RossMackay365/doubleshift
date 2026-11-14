@@ -1,7 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-// The app's version lives in package.json. Raise it there for each release.
 import { version } from '../../package.json';
 
 // The user guide: a window over the page, so reading it never leaves the schedule you have

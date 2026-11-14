@@ -124,7 +124,7 @@ Ctrl+S always saves the whole file, including in edit mode (edits not yet applie
 
 Each schedule's settings (`settings` in the file; types in `lib/types.ts`, defaults and reward descriptions in `lib/settings.ts`) are edited on the Settings page and saved with the header's Save:
 
-The page has Max Solve Time at the top (a dropdown of set choices, `SOLVE_TIME_OPTIONS` in `lib/settings.ts`; other saved values snap to the nearest), then three sections:
+The page has Max Solve Time at the top (a dropdown of set choices, `SOLVE_TIME_OPTIONS` in `lib/settings.ts`), then three sections:
 - **Rewards:** Points or Priority Order mode, plus each reward's on/off switch, points, and (in Priority Order mode) priority order.
 - **Groups and Trainers:** Gendered Groups, Assign Trainers to Groups, Group Rules.
 - **Locations and Timeslots:** Name Spaces, Space-Specific Timeslots.

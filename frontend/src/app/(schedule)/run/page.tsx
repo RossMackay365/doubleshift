@@ -272,7 +272,7 @@ export default function RunPage() {
         </div>
       </div>
 
-      {/* What still needs doing before a run */}
+      {/* Data To-Do's Before Solver Run */}
       {todo.length > 0 && !editMode && (
         <div className="mb-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-base text-amber-800">
           <div className="mb-1 font-semibold">A few things to finish on the Data page before you can run:</div>
@@ -282,7 +282,7 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* Edit mode banner */}
+      {/* Edit Mode Banner */}
       {editMode && (
         <div className="mb-5 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-base text-blue-700">
           <Pencil size={16} className="shrink-0" />
@@ -309,7 +309,7 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* Solver stats */}
+      {/* Solver Stats */}
       {jobStatus && !editMode && (
         <div className="mb-8 rounded-lg border border-gray-200 bg-white p-5">
           <div className="flex items-start justify-between gap-4">
@@ -393,7 +393,7 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* Verify result panel */}
+      {/* Verify Result Panel */}
       {verifyResult && editMode && (
         <div className={`mb-6 rounded-lg border p-5 ${verifyResult.feasible ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
           <div className="flex items-start justify-between gap-4">
@@ -447,7 +447,7 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* Score breakdown panel */}
+      {/* Score Breakdown Panel */}
       {showBreakdown && solverData && (
         <div className="mb-8 rounded-lg border border-gray-200 bg-white p-5">
           <div className="mb-4 flex items-center justify-between">
@@ -479,7 +479,7 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* The schedule, as a calendar or a table. Editing always uses the calendar. */}
+      {/* Schedule View (Calendar or Table) */}
       {(hasResult || (editMode && editableSchedule.length > 0)) && data && (
         !editMode && view === 'table' ? (
           <ScheduleTable
