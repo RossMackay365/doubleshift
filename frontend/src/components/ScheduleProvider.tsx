@@ -5,6 +5,7 @@ import { getSchedule, saveSchedule, startSolve, getJobStatus, cancelSolve } from
 import { DEFAULT_SETTINGS, withDefaults, withUnavailableOff } from '@/lib/settings';
 import { JobStatus, ScheduleContents, ScheduleData, ScheduleSettings } from '@/lib/types';
 import ScheduleNotFound from '@/components/ScheduleNotFound';
+import LeaveDialog from '@/components/LeaveDialog';
 import { desktopApi } from '@/lib/desktop';
 
 const POLL_MS = 1000;
@@ -25,6 +26,8 @@ interface OpenSchedule {
   setLastRun: (run: JobStatus | null) => void;
   isModified: boolean;
   save: () => Promise<void>;
+  // The Run page's edits that haven't been applied yet, to warn before they're lost.
+  setUnappliedEdits: (unapplied: boolean) => void;
   // The run in progress (null when not running); once finished it becomes lastRun.
   activeRun: JobStatus | null;
   running: boolean;
@@ -208,30 +211,46 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
   }, [save]);
 
   // Ask before leaving the schedule with unsaved changes or a run in progress: closing/
-  // reloading the window, or clicking a link out of it (Home). Switching tabs is fine.
+  // reloading the window, or clicking a link out of it (Home). Switching tabs is fine,
+  // except away from the Run page with edits not yet applied (setUnappliedEdits).
+  const [unappliedEdits, setUnappliedEdits] = useState(false);
+  const editsWarning = "You have edits you haven't applied yet. Leave without applying them?";
   const leaveWarning = running
     ? 'The scheduler is still running. If you leave now, it stops. Leave anyway?'
-    : isModified ? "You have changes you haven't saved. Leave without saving?" : '';
+    : isModified ? "You have changes you haven't saved. Leave without saving?"
+    : unappliedEdits ? editsWarning : '';
+  const tabWarning = unappliedEdits ? editsWarning : '';
 
   // The desktop app's window closes without the browser's leave check, so the launcher
   // asks instead, using the warning it's given here ('' for no warning).
   useEffect(() => { desktopApi()?.set_leave_warning(leaveWarning); }, [leaveWarning]);
   useEffect(() => () => { desktopApi()?.set_leave_warning(''); }, []);
 
+  // A link click out of the schedule is held back while LeaveDialog asks. Choosing Leave
+  // clicks the link again, and allowLeave lets that click through.
+  const [leaving, setLeaving] = useState<{ link: HTMLAnchorElement; warning: string } | null>(null);
+  const allowLeave = useRef(false);
+
   useEffect(() => {
-    if (!leaveWarning) return;
-    const warning = leaveWarning;
+    if (!leaveWarning && !tabWarning) return;
     function onBeforeUnload(e: BeforeUnloadEvent) {
-      e.preventDefault();
+      if (leaveWarning) e.preventDefault();
     }
     function onLinkClick(e: MouseEvent) {
       const link = (e.target as HTMLElement).closest('a');
+      // Links that open in a new window (the Guide's) don't leave the page.
+      if (!link || link.target === '_blank' || link.pathname === window.location.pathname) return;
       // Page URLs end in a slash in the built app (/data/), but not in `npm run dev`.
-      if (!link || ['/data', '/run', '/settings'].includes(link.pathname.replace(/\/$/, ''))) return;
-      if (!confirm(warning)) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
+      const isTab = ['/data', '/run', '/settings'].includes(link.pathname.replace(/\/$/, ''));
+      const warning = isTab ? tabWarning : leaveWarning;
+      if (!warning) return;
+      if (allowLeave.current) {
+        allowLeave.current = false;
+        return;
       }
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setLeaving({ link, warning });
     }
     window.addEventListener('beforeunload', onBeforeUnload);
     document.addEventListener('click', onLinkClick, true);
@@ -239,7 +258,7 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
       window.removeEventListener('beforeunload', onBeforeUnload);
       document.removeEventListener('click', onLinkClick, true);
     };
-  }, [leaveWarning]);
+  }, [leaveWarning, tabWarning]);
 
   if (loadError) return <ScheduleNotFound message={`This schedule couldn't be opened. ${loadError}`} />;
   if (status === 'notFound') return <ScheduleNotFound />;
@@ -247,10 +266,21 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
 
   return (
     <ScheduleContext.Provider value={{
-      path, name, data, setData: updateData, settings, setSettings: updateSettings, lastRun, setLastRun, isModified, save,
+      path, name, data, setData: updateData, settings, setSettings: updateSettings, lastRun, setLastRun, isModified, save, setUnappliedEdits,
       activeRun, running, cancelling, startedAt, runError, clearRunError: () => setRunError(null), startRun, cancelRun,
     }}>
       {children}
+      {leaving && (
+        <LeaveDialog
+          message={leaving.warning}
+          onStay={() => setLeaving(null)}
+          onLeave={() => {
+            setLeaving(null);
+            allowLeave.current = true;
+            leaving.link.click();
+          }}
+        />
+      )}
     </ScheduleContext.Provider>
   );
 }

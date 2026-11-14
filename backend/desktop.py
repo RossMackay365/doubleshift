@@ -27,55 +27,74 @@ class DesktopApi:
     def set_leave_warning(self, warning):
         self._leave_warning = warning
 
+    def get_leave_warning(self):
+        return getattr(self, "_leave_warning", "")
+
     # Minimise, Maximise and Close Buttons - Custom Window Bar
     def minimize(self):
         import webview
 
         webview.windows[0].minimize()
 
+    # A window with no Windows frame can't rely on Windows to maximise it: Windows sizes it
+    # for the main screen, which goes wrong on any other. So "maximised" here is the window
+    # resized to fill the screen it's on, and restoring puts back the bounds it had before.
+    _restore_bounds = None
+
     def toggle_maximize(self):
         import webview
 
         window = webview.windows[0]
-        if self.is_maximized():
-            window.restore()
+        if self._restore_bounds is None:
+            self._restore_bounds = _fill_screen(window)
         else:
-            _fit_maximised_to_screen(window)
-            window.maximize()
+            _set_bounds(window, self._restore_bounds)
+            self._restore_bounds = None
         return self.is_maximized()
 
     def is_maximized(self):
-        import webview
-
-        return str(webview.windows[0].native.WindowState) == "Maximized"
+        return self._restore_bounds is not None
 
     def close(self):
         import webview
 
+        self._leave_warning = ""
         webview.windows[0].destroy()
 
     def _confirm_close(self, window):
-        """Runs as the window starts to close. Returning False keeps it open."""
-        warning = getattr(self, "_leave_warning", "")
+        """Runs as the window starts to close (Alt+F4, the taskbar). Returning False keeps
+        it open."""
+        warning = self.get_leave_warning()
         if warning:
             return window.create_confirmation_dialog("DoubleShift", warning)
 
 
-def _fit_maximised_to_screen(window):
+def _fill_screen(window):
+    """Resizes the window to fill the screen it's on, leaving the taskbar showing.
+    Returns the bounds it had before."""
     from System import Func, Type
     from System.Windows.Forms import Screen
 
     form = window.native
+    before = []
 
-    def fit():
-        form.MaximizedBounds = Screen.FromHandle(form.Handle).WorkingArea
+    def fill():
+        before.append(form.Bounds)
+        form.Bounds = Screen.FromHandle(form.Handle).WorkingArea
 
-    form.Invoke(Func[Type](fit))
+    form.Invoke(Func[Type](fill))
+    return before[0]
 
 
-def _start_maximised(window):
-    _fit_maximised_to_screen(window)
-    window.maximize()
+def _set_bounds(window, bounds):
+    from System import Func, Type
+
+    form = window.native
+
+    def set_bounds():
+        form.Bounds = bounds
+
+    form.Invoke(Func[Type](set_bounds))
 
 
 def main():
@@ -140,7 +159,7 @@ def main():
         text_select=True,
     )
     window.events.closing += api._confirm_close
-    window.events.shown += _start_maximised
+    window.events.shown += api.toggle_maximize  # start maximised
     webview.start()
 
     for child in multiprocessing.active_children():

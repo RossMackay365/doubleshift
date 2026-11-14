@@ -478,7 +478,7 @@
         "groupID": "Women's 1",
         "femaleLevel": 2,
         "maleLevel": 3,
-        "capacity": 2,
+        "capacity": 1,
         "trainingGroups": [],
         "availability_bitmask": [
           1,
@@ -495,7 +495,7 @@
         "groupID": "Men's 1",
         "femaleLevel": 3,
         "maleLevel": 2,
-        "capacity": 2,
+        "capacity": 1,
         "trainingGroups": [],
         "availability_bitmask": [
           1,
@@ -512,7 +512,7 @@
         "groupID": "",
         "femaleLevel": 2,
         "maleLevel": 0,
-        "capacity": 2,
+        "capacity": 1,
         "trainingGroups": [],
         "availability_bitmask": [
           1,
@@ -529,7 +529,7 @@
         "groupID": "",
         "femaleLevel": 0,
         "maleLevel": 2,
-        "capacity": 2,
+        "capacity": 1,
         "trainingGroups": [],
         "availability_bitmask": [
           0,
@@ -546,7 +546,7 @@
         "groupID": "Women's 2",
         "femaleLevel": 3,
         "maleLevel": 3,
-        "capacity": 2,
+        "capacity": 1,
         "trainingGroups": [],
         "availability_bitmask": [
           1,
@@ -563,7 +563,7 @@
         "groupID": "Men's 2",
         "femaleLevel": 3,
         "maleLevel": 3,
-        "capacity": 2,
+        "capacity": 1,
         "trainingGroups": [],
         "availability_bitmask": [
           1,
@@ -580,7 +580,7 @@
         "groupID": "",
         "femaleLevel": 4,
         "maleLevel": 4,
-        "capacity": 2,
+        "capacity": 1,
         "trainingGroups": [],
         "availability_bitmask": [
           1,
@@ -614,7 +614,7 @@
         "groupID": "",
         "femaleLevel": 5,
         "maleLevel": 5,
-        "capacity": 2,
+        "capacity": 1,
         "trainingGroups": [],
         "availability_bitmask": [
           1,
@@ -631,7 +631,7 @@
         "groupID": "Masters Men",
         "femaleLevel": 5,
         "maleLevel": 5,
-        "capacity": 2,
+        "capacity": 1,
         "trainingGroups": [],
         "availability_bitmask": [
           1,
@@ -639,6 +639,108 @@
           0,
           0,
           1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Taylor Reid",
+        "groupID": "",
+        "femaleLevel": 2,
+        "maleLevel": 3,
+        "capacity": 1,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Jordan Hayes",
+        "groupID": "",
+        "femaleLevel": 3,
+        "maleLevel": 2,
+        "capacity": 1,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Drew Patel",
+        "groupID": "",
+        "femaleLevel": 0,
+        "maleLevel": 3,
+        "capacity": 1,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Ash Kelly",
+        "groupID": "",
+        "femaleLevel": 3,
+        "maleLevel": 0,
+        "capacity": 1,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Kim Walsh",
+        "groupID": "",
+        "femaleLevel": 4,
+        "maleLevel": 4,
+        "capacity": 1,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Quinn Foster",
+        "groupID": "",
+        "femaleLevel": 5,
+        "maleLevel": 5,
+        "capacity": 1,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          0,
+          1,
+          0,
+          1,
+          0,
           1,
           1
         ]

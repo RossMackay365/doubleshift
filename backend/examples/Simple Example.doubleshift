@@ -249,7 +249,7 @@
         "groupID": "",
         "femaleLevel": 2,
         "maleLevel": 1,
-        "capacity": 2,
+        "capacity": 1,
         "trainingGroups": [],
         "availability_bitmask": [
           1,
@@ -263,7 +263,7 @@
         "groupID": "",
         "femaleLevel": 3,
         "maleLevel": 1,
-        "capacity": 2,
+        "capacity": 1,
         "trainingGroups": [],
         "availability_bitmask": [
           0,
@@ -277,7 +277,7 @@
         "groupID": "Seniors 3",
         "femaleLevel": 4,
         "maleLevel": 1,
-        "capacity": 2,
+        "capacity": 1,
         "trainingGroups": [],
         "availability_bitmask": [
           1,
@@ -291,13 +291,83 @@
         "groupID": "",
         "femaleLevel": 5,
         "maleLevel": 1,
-        "capacity": 2,
+        "capacity": 1,
         "trainingGroups": [],
         "availability_bitmask": [
           1,
           0,
           1,
           0
+        ]
+      },
+      {
+        "name": "Taylor Reid",
+        "groupID": "",
+        "femaleLevel": 3,
+        "maleLevel": 1,
+        "capacity": 1,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Jordan Hayes",
+        "groupID": "",
+        "femaleLevel": 4,
+        "maleLevel": 1,
+        "capacity": 1,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          0,
+          1,
+          0,
+          1
+        ]
+      },
+      {
+        "name": "Drew Patel",
+        "groupID": "",
+        "femaleLevel": 5,
+        "maleLevel": 1,
+        "capacity": 1,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Kim Walsh",
+        "groupID": "",
+        "femaleLevel": 6,
+        "maleLevel": 1,
+        "capacity": 1,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Ash Kelly",
+        "groupID": "",
+        "femaleLevel": 6,
+        "maleLevel": 1,
+        "capacity": 1,
+        "trainingGroups": [],
+        "availability_bitmask": [
+          0,
+          0,
+          1,
+          1
         ]
       }
     ],

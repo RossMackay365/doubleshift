@@ -80,6 +80,9 @@ Copy-Item (Join-Path $root 'packaging\Assets') (Join-Path $priRoot 'Assets') -Re
 Copy-Item (Join-Path $staging 'AppxManifest.xml') $priRoot
 $priConfig = Join-Path $build 'priconfig.xml'
 Run (SdkTool 'makepri.exe') createconfig /cf $priConfig /dq en-US /pv 10.0.0 /o
+# The generated config splits each logo scale into its own .pri file, which Windows only
+# loads from a bundle. Removing the split keeps every scale in resources.pri.
+(Get-Content $priConfig -Raw) -replace '(?s)<packaging>.*?</packaging>', '' | Set-Content $priConfig -Encoding UTF8
 Run (SdkTool 'makepri.exe') new /pr $priRoot /cf $priConfig /of (Join-Path $staging 'resources.pri') /o
 
 $msix = Join-Path $dist "DoubleShift-$msixVersion.msix"

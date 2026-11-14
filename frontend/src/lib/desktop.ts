@@ -7,11 +7,12 @@ interface DesktopApi {
   choose_schedule(): Promise<string | null>;
   // What to ask before the window closes ('' to close without asking).
   set_leave_warning(warning: string): Promise<void>;
+  get_leave_warning(): Promise<string>;
   // The window has no Windows title bar, so WindowControls draws these buttons.
   minimize(): Promise<void>;
   toggle_maximize(): Promise<boolean>; // whether it's now maximised
   is_maximized(): Promise<boolean>;
-  close(): Promise<void>;
+  close(): Promise<void>; // closes without asking: WindowControls asks first
 }
 
 export function desktopApi(): DesktopApi | null {

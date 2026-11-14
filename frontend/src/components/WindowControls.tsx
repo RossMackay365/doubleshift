@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Copy, Minus, Square, X } from 'lucide-react';
 import { desktopApi, onDesktopReady } from '@/lib/desktop';
+import LeaveDialog from '@/components/LeaveDialog';
 
 // The desktop app's window has no Windows title bar, so this draws its minimise, maximise
 // and close buttons in the top right corner, over the page, plus a strip along the top for
@@ -11,6 +12,7 @@ import { desktopApi, onDesktopReady } from '@/lib/desktop';
 export default function WindowControls() {
   const [isDesktop, setIsDesktop] = useState(false);
   const [maximized, setMaximized] = useState(true);
+  const [closeWarning, setCloseWarning] = useState('');
 
   useEffect(() => onDesktopReady(() => {
     setIsDesktop(true);
@@ -23,6 +25,15 @@ export default function WindowControls() {
   async function toggleMaximize() {
     const api = desktopApi();
     if (api) setMaximized(await api.toggle_maximize());
+  }
+
+  // Asks in the app's own dialog when there's something to lose (see ScheduleProvider).
+  async function close() {
+    const api = desktopApi();
+    if (!api) return;
+    const warning = await api.get_leave_warning();
+    if (warning) setCloseWarning(warning);
+    else api.close();
   }
 
   const button = 'flex h-8 w-11 items-center justify-center text-gray-500 transition-colors';
@@ -41,10 +52,17 @@ export default function WindowControls() {
         <button onClick={toggleMaximize} title={maximized ? 'Restore' : 'Maximise'} className={`${button} hover:bg-gray-200 hover:text-gray-900`}>
           {maximized ? <Copy size={14} strokeWidth={1.75} /> : <Square size={14} strokeWidth={1.75} />}
         </button>
-        <button onClick={() => desktopApi()?.close()} title="Close" className={`${button} hover:bg-red-600 hover:text-white`}>
+        <button onClick={close} title="Close" className={`${button} hover:bg-red-600 hover:text-white`}>
           <X size={17} strokeWidth={1.75} />
         </button>
       </div>
+      {closeWarning && (
+        <LeaveDialog
+          message={closeWarning}
+          onStay={() => setCloseWarning('')}
+          onLeave={() => desktopApi()?.close()}
+        />
+      )}
     </>
   );
 }

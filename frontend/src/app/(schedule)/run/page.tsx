@@ -28,7 +28,7 @@ export default function RunPage() {
   // Data, reward settings, the last run and any run in progress belong to the open
   // schedule (ScheduleProvider), so a run keeps going while switching tabs.
   const {
-    data, settings, lastRun, setLastRun,
+    data, settings, lastRun, setLastRun, setUnappliedEdits,
     activeRun, running, cancelling, startedAt, runError, clearRunError, startRun, cancelRun,
   } = useSchedule();
   const jobStatus = running ? activeRun : lastRun;
@@ -124,28 +124,10 @@ export default function RunPage() {
     [editMode, editableSchedule, jobStatus],
   );
 
-  // In edit mode, ask before leaving this page (Data tab, Home, closing the window)
-  // with edits that haven't been applied with "Apply Changes".
-  useEffect(() => {
-    if (!isModified) return;
-    function onBeforeUnload(e: BeforeUnloadEvent) {
-      e.preventDefault();
-    }
-    function onLinkClick(e: MouseEvent) {
-      const link = (e.target as HTMLElement).closest('a');
-      if (!link || link.pathname === window.location.pathname) return;
-      if (!confirm("You have edits you haven't applied yet. Leave without applying them?")) {
-        e.preventDefault();
-        e.stopImmediatePropagation(); // don't also show the schedule's own leave warning
-      }
-    }
-    window.addEventListener('beforeunload', onBeforeUnload);
-    document.addEventListener('click', onLinkClick, true);
-    return () => {
-      window.removeEventListener('beforeunload', onBeforeUnload);
-      document.removeEventListener('click', onLinkClick, true);
-    };
-  }, [isModified]);
+  // In edit mode, the schedule asks before leaving this page (Data tab, Home, closing the
+  // window) with edits that haven't been applied with "Apply Changes".
+  useEffect(() => { setUnappliedEdits(isModified); }, [isModified, setUnappliedEdits]);
+  useEffect(() => () => setUnappliedEdits(false), [setUnappliedEdits]);
 
   const breakdownSchedule = useMemo(
     () => (editMode ? editableSchedule : (jobStatus?.result ?? [])),
