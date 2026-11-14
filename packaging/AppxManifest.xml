@@ -48,7 +48,6 @@
   </Applications>
 
   <Capabilities>
-    <!-- A desktop app (Python, a local server and a WebView2 window), not a sandboxed one. -->
     <rescap:Capability Name="runFullTrust" />
   </Capabilities>
 </Package>

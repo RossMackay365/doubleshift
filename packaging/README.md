@@ -1,82 +1,75 @@
 # Packaging
 
-Everything for building the Windows app and its MSIX package for the Microsoft Store.
+DoubleShift ships in two forms: a Docker image and a Windows app. Both are the same thing inside: the backend serving the frontend's static build. This page describes how each one is put together. For what the app does, see the [root README](../README.md).
+
+## Docker
+
+The [Dockerfile](../Dockerfile) builds one image in two stages. A Node stage builds the frontend into a static site. A Python stage installs the backend and copies that site in, and Uvicorn serves both on port 8000.
+
+```bash
+docker compose up
+```
+
+[docker-compose.yml](../docker-compose.yml) runs the image with:
+
+- **Schedules** in `./schedules` on your computer, so you can see, back up and share the files.
+- **A volume** for housekeeping: the recently opened list.
+- **A memory limit** of 1.5 GB, so a very large schedule can't take down the host. Raise `mem_limit` and `memswap_limit` if the scheduler needs more.
+
+## Windows App
+
+The Windows app is built in two steps.
+
+1. **The app.** [PyInstaller](https://pyinstaller.org/) bundles `backend/desktop.py`, Python, the solver, the frontend build and the example schedules into `dist\DoubleShift\DoubleShift.exe` (`backend/doubleshift.spec`). The app runs the backend on this computer only and shows it in its own window, using Windows' built-in WebView2.
+2. **The package.** The app folder, the logos and the manifest are packed into an MSIX, the format the Microsoft Store uses. The Store signs the package when it is published.
+
+The MSIX adds what a plain exe can't: a Start menu entry, clean install and uninstall, updates through the Store, and opening `.doubleshift` files by double-click.
+
+### What Is in This Folder
 
 | File | What it is |
 |---|---|
-| `AppxManifest.xml` | The package description: identity, name, logos, `.doubleshift` file association |
-| `Assets/` | The logos inside the package (you make these, see below) |
-| `DoubleShift.ico` | The exe and window icon (you make this) |
-| `Store/` | Box art, poster art and hero art for the Partner Center listing. Not packaged |
+| `AppxManifest.xml` | The package description: identity, name, logos and the `.doubleshift` file association |
+| `Assets/` | The logos inside the package, in the sizes Windows asks for |
+| `DoubleShift.ico` | The icon of the exe and its window |
+| `Store/` | Artwork for the Store listing. Not packaged |
 | `make_notices.py` | Writes `THIRD_PARTY_NOTICES.txt` at the repo root |
-| `../build-msix.ps1` | Builds it all |
+| `../build-msix.ps1` | Builds the app and the package |
 
-## One-time setup
+### Building It Yourself
 
-1. **Tools:** Node.js, Python 3.12 and the [Windows SDK](https://developer.microsoft.com/windows/downloads/windows-sdk/) (for makeappx, makepri and signtool).
-2. **Python environment:**
-   ```powershell
-   cd backend
-   python -m venv venv
-   .\venv\Scripts\python.exe -m pip install -r requirements-desktop.txt
-   ```
-3. **Identity:** in `AppxManifest.xml`, replace each `REPLACE-ME` value with the one from Partner Center (Product management > Product identity), exactly as shown there.
-4. **Logos:** make the files below.
+You need Node.js, Python 3.12 and the [Windows SDK](https://developer.microsoft.com/windows/downloads/windows-sdk/). Set up the Python environment once:
 
-## Logos
+```powershell
+cd backend
+python -m venv venv
+.\venv\Scripts\python.exe -m pip install -r requirements-desktop.txt
+```
 
-Transparent PNGs in `Assets/`. The manifest names the base file (`Square44x44Logo.png`) and Windows picks the size it needs, so each file has a size in its name. At least the `scale-100` and `scale-200` files are needed; the rest look sharper on high resolution screens.
-
-| File | Shown in | Sizes in pixels |
-|---|---|---|
-| `Square44x44Logo.scale-100.png` … `scale-400` | Start menu list, taskbar | 100: 44, 125: 55, 150: 66, 200: 88, 400: 176 |
-| `Square44x44Logo.targetsize-16_altform-unplated.png` (and 24, 32, 48, 256) | Taskbar, File Explorer | 16, 24, 32, 48, 256 |
-| `Square150x150Logo.scale-100.png` … `scale-400` | Start menu tile | 100: 150, 125: 188, 150: 225, 200: 300, 400: 600 |
-| `StoreLogo.scale-100.png` … `scale-400` | Installer, package logo | 100: 50, 125: 63, 150: 75, 200: 100, 400: 200 |
-
-Also make `packaging/DoubleShift.ico` (16, 20, 24, 32, 40, 48, 64 and 256 pixels in one file) for the exe, and `frontend/src/app/icon.png` (512 × 512) for the browser tab in Docker.
-
-## Building
+Then, from the repo root:
 
 ```powershell
 .\build-msix.ps1
 ```
 
-This builds the frontend, writes the third party notices, builds `dist\DoubleShift\DoubleShift.exe`, and packs `dist\DoubleShift-<version>.msix`. The version comes from `frontend/package.json` (`1.2.0` becomes `1.2.0.0`).
+This builds the frontend, writes the third party notices, builds the app in `dist\DoubleShift`, and packs `dist\DoubleShift-<version>.msix`. You can run `dist\DoubleShift\DoubleShift.exe` straight away.
 
-## Testing the MSIX on your PC
+The MSIX itself is unsigned, so Windows won't install it as it is. The identity in `AppxManifest.xml` belongs to the official Store listing. To install or publish your own build as an MSIX, change `Name` and `Publisher` in the manifest to your own, and sign the package with a certificate for that publisher (`.\build-msix.ps1 -CertPath <your .pfx>`).
 
-The Store signs the package, but to install it yourself it needs a test signature.
+### Version
 
-1. **Once:** make a test certificate. The subject must match the manifest's `Publisher` exactly.
-   ```powershell
-   $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=<your Publisher value>" -KeyUsage DigitalSignature `
-     -FriendlyName "DoubleShift test" -CertStoreLocation Cert:\CurrentUser\My `
-     -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
-   $password = ConvertTo-SecureString "test" -Force -AsPlainText
-   Export-PfxCertificate -Cert $cert -FilePath packaging\test.pfx -Password $password
-   ```
-   Then, in PowerShell as administrator, trust it:
-   ```powershell
-   Import-PfxCertificate -FilePath packaging\test.pfx -CertStoreLocation Cert:\LocalMachine\TrustedPeople -Password $password
-   ```
-2. **Build and sign:** `.\build-msix.ps1 -CertPath packaging\test.pfx -CertPassword test`
-3. **Install:** double-click the `.msix`, or `Add-AppxPackage dist\DoubleShift-<version>.msix`.
-4. **Check** that it starts from the Start menu, opens `.doubleshift` files by double-click, runs and stops a schedule, and keeps your schedules in Documents\DoubleShift after you uninstall it.
-5. **Certification kit:** run *Windows App Cert Kit* from the Start menu (as administrator), choose the `.msix`, and fix anything it reports before you submit.
-6. **Uninstall the test copy** before installing from the Store, because both have the same identity.
+The version comes from `version` in `frontend/package.json`. The build writes it into the manifest with a fourth part added, so `1.2.0` becomes `1.2.0.0`. The guide's About section shows the same version.
 
-`*.pfx` files are in `.gitignore`. Never commit one.
+## Where Your Data Lives
 
-## Releasing a version
+| | Windows app | Docker |
+|---|---|---|
+| Schedules (`.doubleshift` files) | `Documents\DoubleShift` | `./schedules` |
+| Recently opened list | The app's data folder | The `doubleshift-data` volume |
+| Log | `doubleshift.log` in the app's data folder | `docker compose logs` |
 
-1. Raise `version` in `frontend/package.json` (each Store submission needs a higher version).
-2. Commit and push.
-3. `.\build-msix.ps1`, then test.
-4. Tag the release on GitHub with the same version (`v1.2.0`), so the source for every version people install is public, as the AGPL requires:
-   ```powershell
-   git tag -a v1.2.0 -m "DoubleShift 1.2.0"
-   git push origin v1.2.0
-   ```
-   Then on GitHub, open **Releases > Draft a new release**, choose the tag, describe what's new, and attach the zipped `dist\DoubleShift` folder if you want people to be able to download the app directly.
-5. Upload `dist\DoubleShift-<version>.msix` in a new Partner Center submission.
+Uninstalling the Windows app removes its data folder but keeps your schedules in Documents.
+
+## Licence Files
+
+DoubleShift is under the AGPL, and it bundles other open source software. Every build carries both licences with it. The Windows app includes `LICENSE` and `THIRD_PARTY_NOTICES.txt`. `make_notices.py` writes the notices on every build from the Python and JavaScript packages that end up in the app, so the list never goes out of date.

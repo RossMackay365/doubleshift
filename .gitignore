@@ -56,3 +56,6 @@ backend/dist/
 /dist/
 /build/
 *.pfx
+
+# Private build and release notes
+packaging/Packing Instructions.md
