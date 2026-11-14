@@ -150,3 +150,9 @@ export async function getSchedule(path: string): Promise<SavedSchedule | null> {
 export async function saveSchedule(path: string, contents: ScheduleContents): Promise<void> {
   await request(`/api/schedule?path=${encodeURIComponent(path)}`, json('PUT', contents));
 }
+
+// Sends the file to the Recycle Bin (deletes it for good where there's none, e.g. Docker),
+// and takes it off the recent list.
+export async function deleteSchedule(path: string): Promise<void> {
+  await request(`/api/schedule?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
+}

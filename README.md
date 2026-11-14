@@ -75,14 +75,14 @@ In **Priority Order** mode (the default) the rewards are ranked. The scheduler w
 
 | Reward | Default points | What it does |
 |---|---|---|
-| Same Day | 10,000 | Puts all of a trainer's sessions on one day (the sessions they train and their own group's session) |
-| No Travel | 100 | Keeps a trainer at one location for the whole day (needs two or more locations) |
-| Minimise Wait Time (penalty) | 100 per minute | Counts every minute a trainer waits between sessions on the same day |
-| Group Rules (penalty) | 100 per minute | Counts every minute a group's members would miss of a session they want to attend (preferred group rules only; needs the *Group Rules* setting) |
-| Free to Fill In (penalty) | 10,000 | Keeps a trainer free while the group one level above their own trains, so they can fill in if needed |
-| Adjacent Groups Back-to-Back | 5,000 | Puts groups one level apart in sessions straight after each other |
-| Adjacent Groups Same Day | 1,000 | Puts groups one level apart on the same day |
-| Same Gender Back-to-Back | 1 | Keeps sessions for the same gender together in a space, so equipment and setup stay the same (needs *Gendered Groups*) |
+| Same Day | 10,000 | Gives a reward for each trainer whose sessions are all on one day (the sessions they train and their own group's session) |
+| No Travel | 100 | Gives a reward for each day a trainer spends at one location, on days when they have two or more sessions (needs two or more locations) |
+| Minimise Wait Time (penalty) | 100 per minute | Applies a penalty for each minute a trainer waits between sessions on the same day |
+| Group Rules (penalty) | 100 per minute | Applies a penalty for each minute a group's members would miss of a session they want to attend (preferred group rules only; needs the *Group Rules* setting) |
+| Available to Sub in Higher Group (penalty) | 10,000 | Applies a penalty each time a trainer can't attend the session of a group one level above their own, because they are training another group at that time |
+| Adjacent Groups Back-to-Back | 5,000 | Gives a reward each time two groups one level apart train straight after each other at the same location |
+| Adjacent Groups Same Day | 1,000 | Gives a reward each time two groups one level apart train on the same day at the same location, at different times |
+| Same Gender Back-to-Back | 1 | Gives a reward each time two sessions for the same gender follow each other in the same space. Useful when you want to avoid equipment or setup changes (needs *Gendered Groups*) |
 
 In Points mode the score is the sum of every reward's points. Priority Order mode has no single score; the Score Breakdown shows how each reward did.
 

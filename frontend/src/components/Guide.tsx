@@ -264,6 +264,10 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
           DoubleShift only saves when you press ‘Save’. It asks before you leave a schedule with
           changes you haven&apos;t saved.
         </p>
+        <p>
+          To delete a schedule, open it and choose ‘Delete Schedule’ at the bottom of
+          ‘Scheduler Settings’. Its file goes to the Recycle Bin, so you can restore it from there.
+        </p>
       </>
     ),
   },

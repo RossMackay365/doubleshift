@@ -143,6 +143,23 @@ def save_schedule(path, contents):
     _write(path, contents)
 
 
+def delete_schedule(path):
+    """Delete a schedule's file and take it off the recent list. On Windows the file goes to
+    the Recycle Bin, so it can be restored; elsewhere (Docker) there's no Recycle Bin, so it's
+    deleted for good. Raises FileNotFoundError if it's already gone, OSError if it can't be
+    deleted (for example while another program has it open)."""
+    _check_path(path)
+    if not os.path.isfile(path):
+        raise FileNotFoundError(path)
+    if sys.platform == "win32":
+        from send2trash import send2trash
+
+        send2trash(os.path.abspath(path))  # it needs a clean Windows path (backslashes)
+    else:
+        os.remove(path)
+    _remove_recent(path)
+
+
 # --- Recently opened ---
 
 def _load_recent():
@@ -159,6 +176,13 @@ def _add_recent(path):
     recent = [path] + [p for p in _load_recent() if os.path.normcase(p) != key]
     with open(RECENT_PATH, "w", encoding="utf-8") as f:
         json.dump(recent[:RECENT_COUNT], f, indent=2)
+
+
+def _remove_recent(path):
+    key = os.path.normcase(os.path.abspath(path))
+    recent = [p for p in _load_recent() if os.path.normcase(p) != key]
+    with open(RECENT_PATH, "w", encoding="utf-8") as f:
+        json.dump(recent, f, indent=2)
 
 
 def recent_schedules():

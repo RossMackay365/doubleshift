@@ -87,6 +87,7 @@ Each schedule is a `.doubleshift` file (JSON: `version`, `data`, `settings`, `la
 | `POST /api/schedules/import` | Copy an uploaded file into the folder: `{ name, file }`. Renames to `name (2)` if taken |
 | `GET /api/schedule?path=` | Read a file and add it to the recent list |
 | `PUT /api/schedule?path=` | Write the whole file: `{ data, settings, last_run }` |
+| `DELETE /api/schedule?path=` | Delete the file (to the Recycle Bin on Windows, for good elsewhere) and take it off the recent list. 404 if it's gone, 409 if it can't be deleted |
 
 ## Solver Design
 

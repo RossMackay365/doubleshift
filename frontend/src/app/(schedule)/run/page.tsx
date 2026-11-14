@@ -2,11 +2,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   Play, Square, AlertCircle, CheckCircle2, Loader2, Clock,
-  Pencil, X, ShieldCheck, RotateCcw, Save, BarChart2,
+  Pencil, X, ShieldCheck, RotateCcw, Save, BarChart2, CalendarDays, Table2,
 } from 'lucide-react';
 import { verifySchedule } from '@/lib/api';
 import { ScheduleEntry, VerifyResult, expandLocations, Space } from '@/lib/types';
 import ScheduleGrid from '@/components/ScheduleGrid';
+import ScheduleTable from '@/components/ScheduleTable';
 import ScoreBreakdownPanel from '@/components/ScoreBreakdownPanel';
 import InfoHint from '@/components/InfoHint';
 import { useSchedule } from '@/components/ScheduleProvider';
@@ -40,6 +41,7 @@ export default function RunPage() {
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const [view, setView] = useState<ScheduleView>('calendar');
 
 
   // Tick a clock while a run is in progress so the live elapsed counter advances.
@@ -477,20 +479,32 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* Schedule grid */}
+      {/* The schedule, as a calendar or a table. Editing always uses the calendar. */}
       {(hasResult || (editMode && editableSchedule.length > 0)) && data && (
-        <ScheduleGrid
-          timeslots={solverData!.timeslots /* with the settings applied, e.g. space-specific times */}
-          spaces={spaces}
-          result={result}
-          groups={runSettings.genderedTeams ? data.groups : undefined /* no gender colours */}
-          inProgress={inProgress}
-          gapPercent={hierarchical ? null : stats?.gap_percent}
-          editMode={editMode}
-          editableSchedule={editableSchedule}
-          trainers={data.trainers}
-          onScheduleChange={next => { setEditableSchedule(next); setVerifyResult(null); }}
-        />
+        !editMode && view === 'table' ? (
+          <ScheduleTable
+            timeslots={solverData!.timeslots}
+            spaces={spaces}
+            result={result}
+            toolbar={<ViewSwitch view={view} onChange={setView} />}
+          />
+        ) : (
+          <>
+            {!editMode && <div className="mb-4"><ViewSwitch view={view} onChange={setView} /></div>}
+            <ScheduleGrid
+              timeslots={solverData!.timeslots /* with the settings applied, e.g. space-specific times */}
+              spaces={spaces}
+              result={result}
+              groups={runSettings.genderedTeams ? data.groups : undefined /* no gender colours */}
+              inProgress={inProgress}
+              gapPercent={hierarchical ? null : stats?.gap_percent}
+              editMode={editMode}
+              editableSchedule={editableSchedule}
+              trainers={data.trainers}
+              onScheduleChange={next => { setEditableSchedule(next); setVerifyResult(null); }}
+            />
+          </>
+        )
       )}
 
       {!hasResult && !running && todo.length === 0 && (
@@ -507,6 +521,30 @@ export default function RunPage() {
 // A score in points, e.g. "60,500".
 function points(score: number): string {
   return Math.round(score).toLocaleString();
+}
+
+type ScheduleView = 'calendar' | 'table';
+
+// Switches the schedule between the calendar and the table.
+function ViewSwitch({ view, onChange }: { view: ScheduleView; onChange: (view: ScheduleView) => void }) {
+  const option = (value: ScheduleView, label: string, icon: React.ReactNode) => (
+    <button
+      onClick={() => onChange(value)}
+      aria-pressed={view === value}
+      className={`flex items-center gap-2 rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+        view === value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+  return (
+    <div className="inline-flex rounded-md bg-gray-100 p-1">
+      {option('calendar', 'Calendar', <CalendarDays size={16} />)}
+      {option('table', 'Table', <Table2 size={16} />)}
+    </div>
+  );
 }
 
 function StatusBadge({ status }: { status: string }) {

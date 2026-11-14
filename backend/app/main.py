@@ -164,6 +164,18 @@ def save_schedule(path: str, request: ScheduleContents):
     return {"ok": True}
 
 
+@app.delete("/api/schedule", status_code=204)
+def delete_schedule(path: str):
+    try:
+        schedules.delete_schedule(path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="This schedule could not be found. It may have been moved or deleted already.")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except OSError:
+        raise HTTPException(status_code=409, detail="This schedule couldn't be deleted. If another program has the file open, close it and try again.")
+
+
 # --- The app itself ---
 # The frontend's static build (frontend/out) is served at /, after the API routes so they
 # take priority. It's bundled with the desktop app, copied into the Docker image, and

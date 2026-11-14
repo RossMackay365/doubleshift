@@ -9,3 +9,6 @@ ortools
 
 # Finding the Documents and app data folders
 platformdirs
+
+# Deleting a schedule sends its file to the Recycle Bin (on Windows)
+send2trash

@@ -420,7 +420,7 @@ def _count_rewards(data: dict, parsed: list) -> dict:
                 if len(active_venues) == 1:
                     counts['REWARD_NO_TRAVEL'] += 1
 
-    # Adjacent group rewards (B2B + same day) and the Free to Fill In penalty, for pairs
+    # Adjacent group rewards (B2B + same day) and the Available to Sub in Higher Group penalty, for pairs
     # of groups with the same gender and adjacent levels (+/-1). Mirrors constraints.py.
     multi_location = len({v for v in space_venue.values() if v}) >= 2
     group_slot: dict = {}   # gi -> si

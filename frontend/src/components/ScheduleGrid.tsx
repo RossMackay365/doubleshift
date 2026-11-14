@@ -5,7 +5,7 @@ import { ScheduleEntry, Space, Trainer, Group, Timeslot, slotRunsOn, sortDays, t
 // Calendar scale: pixels per minute of the day (a 90-minute session is 108px tall).
 const PX_PER_MINUTE = 1.2;
 // Calendar layout: space columns are at least this wide, beside a time axis this wide.
-const MIN_COLUMN_WIDTH = 110;
+const MIN_COLUMN_WIDTH = 150;
 const AXIS_WIDTH = 56;
 
 function formatTime(minutes: number): string {
@@ -197,7 +197,7 @@ export default function ScheduleGrid({
               {/* Time axis, shared by the row's days */}
               <div className="shrink-0" style={{ width: AXIS_WIDTH }}>
                 <div className="h-8 border-b border-transparent" />
-                <div className="h-10 border-b border-gray-200" />
+                <div className="h-14 border-b border-gray-200" />
                 <div className="relative my-3" style={{ height }}>
                   {halfHours.map(m => (
                     <div
@@ -221,8 +221,13 @@ export default function ScheduleGrid({
                     <div className="flex">
                       {spaces.map(space => (
                         <div key={space.spaceName} className="shrink-0 border-l border-gray-100 first:border-l-0" style={{ width: columnWidth }}>
-                          <div className="flex h-10 flex-col justify-center border-b border-gray-200 px-2 leading-tight">
-                            <span className="truncate text-sm font-semibold text-gray-600">{space.label}</span>
+                          {/* Space names wrap onto a second line instead of being cut off; the heading's
+                              height is fixed, so every column (and the time axis) lines up. */}
+                          <div
+                            className="flex h-14 flex-col justify-center border-b border-gray-200 px-2 leading-tight"
+                            title={space.location ? `${space.label}, ${space.location}` : space.label}
+                          >
+                            <span className="line-clamp-2 break-words text-sm font-semibold text-gray-600">{space.label}</span>
                             {space.location && <span className="truncate text-xs text-gray-400">{space.location}</span>}
                           </div>
                           <div className="relative my-3" style={{ height }}>

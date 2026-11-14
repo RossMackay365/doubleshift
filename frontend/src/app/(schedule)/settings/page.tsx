@@ -1,14 +1,18 @@
 'use client';
 import { useState } from 'react';
-import { GripVertical } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { GripVertical, Trash2 } from 'lucide-react';
 import { useSchedule } from '@/components/ScheduleProvider';
+import { deleteSchedule } from '@/lib/api';
+import { desktopApi } from '@/lib/desktop';
 import { REWARDS, SOLVE_TIME_OPTIONS, spacesNamed, isRewardActive, rankedRewards, unavailableReason } from '@/lib/settings';
 import { RewardSetting, ScheduleData, ScheduleSettings } from '@/lib/types';
 
 // The open schedule's Scheduler Settings. Changes go into the schedule's working copy
 // and are written to the file by the header's Save, like everything else.
 export default function SettingsPage() {
-  const { data, settings, setSettings } = useSchedule();
+  const { path, name, data, settings, setSettings } = useSchedule();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const update = (changes: Partial<ScheduleSettings>) => setSettings({ ...settings, ...changes });
 
   return (
@@ -86,7 +90,78 @@ export default function SettingsPage() {
           <Switch checked={settings.spaceTimeslots} onChange={spaceTimeslots => update({ spaceTimeslots })} />
         </SettingRow>
       </Section>
+
+      <Section title="Delete Schedule">
+        <SettingRow
+          name="Delete This Schedule"
+          description={desktopApi()
+            ? "Moves this schedule's file to the Recycle Bin. You can restore it from there."
+            : "Deletes this schedule's file for good."}
+        >
+          <button
+            onClick={() => setConfirmingDelete(true)}
+            className="flex items-center gap-2 rounded-md border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+          >
+            <Trash2 size={16} />
+            Delete Schedule
+          </button>
+        </SettingRow>
+      </Section>
+
+      {confirmingDelete && <ConfirmDelete name={name} path={path} onCancel={() => setConfirmingDelete(false)} />}
     </div>
+  );
+}
+
+// Asks before deleting the schedule's file, then goes to the home page.
+function ConfirmDelete({ name, path, onCancel }: { name: string; path: string; onCancel: () => void }) {
+  const router = useRouter();
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await deleteSchedule(path);
+      router.push('/'); // leaving also stops any run in progress
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/40" onClick={onCancel} />
+      <div
+        role="dialog"
+        aria-label={`Delete ${name}`}
+        className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-gray-200 bg-white p-6 shadow-xl"
+      >
+        <h2 className="text-lg font-semibold text-gray-900">Delete ‘{name}’?</h2>
+        <p className="mt-2 text-sm text-gray-600">
+          {desktopApi()
+            ? 'Its file goes to the Recycle Bin, so you can restore it from there if you change your mind.'
+            : 'Its file is deleted for good. This can’t be undone.'}
+        </p>
+        {error && <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            onClick={onCancel}
+            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+          >
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -107,10 +182,23 @@ function SettingRow({ name, description, children }: { name: string; description
         <span className="font-medium text-gray-800">{name}</span>
         <div className="shrink-0">{children}</div>
       </div>
-      <p className="mt-1 max-w-lg whitespace-pre-line text-sm text-gray-500">{description}</p>
+      <p className="mt-1 max-w-lg text-sm text-gray-500">
+        {description.split('\n').map((line, i) => {
+          const label = line.match(LINE_LABEL)?.[0];
+          return (
+            <span key={i} className="block">
+              {label && <strong className="font-semibold text-gray-700">{label}</strong>}
+              {label ? line.slice(label.length) : line}
+            </span>
+          );
+        })}
+      </p>
     </div>
   );
 }
+
+// A description line that starts with one of these labels shows the label in bold.
+const LINE_LABEL = /^(On|Off|Priority Order|Points):/;
 
 function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) {
   return (
