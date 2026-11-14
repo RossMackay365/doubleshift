@@ -1,6 +1,3 @@
-# One image: the frontend's static build, served by the backend with the API, the same way
-# the desktop app runs. Open http://localhost:8000.
-
 FROM node:20-alpine AS frontend
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./

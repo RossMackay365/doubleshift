@@ -123,7 +123,7 @@ class VerifyResponse(BaseModel):
     reward_counts: Optional[Dict[str, int]] = None
 
 
-# --- Saved schedules (.doubleshift files) ---
+### Saved Schedule Schemas ###
 class ScheduleCreate(BaseModel):
     name: str
 

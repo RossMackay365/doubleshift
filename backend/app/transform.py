@@ -8,10 +8,6 @@ def _calculate_qualifications(trainers: list[dict], groups: list[dict], assign_t
     Returns a 2-D matrix [trainer_idx][group_idx] -> 1 (qualified) or 0.
 
     When trainers are assigned to groups, a trainer qualifies only for their assigned groups.
-
-    Otherwise, rank scale: 1 = highest, 5 = lowest.
-    A trainer qualifies for a group when their rank is <= the group's level
-    (i.e. their skill is at least as high as the group requires).
     """
     if assign_trainers:
         return [

@@ -28,14 +28,13 @@ class SchedulerCallback(cp_model.CpSolverSolutionCallback):
         self._x = x
         self._data = data
         self._queue = progress_queue
-        self._stage = stage or {}  # hierarchical mode: which reward is being optimised
+        self._stage = stage or {}  # Hierarchical Mode: which reward is being optimised
         self._solution_count = 0
 
     def on_solution_callback(self):
         self._solution_count += 1
 
-        # Extract the current assignment while variable values are accessible.
-        # Once the solver moves on, these values are gone.
+        # Extract the Current Variable Value Assignments
         current_schedule = []
         for key, var in self._x.items():
             if self.Value(var) == 1:
@@ -203,11 +202,6 @@ def _reward_counts(solver, rewards: dict) -> dict:
 def _new_solver(max_seconds: float):
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = float(max_seconds)
-    # Use all available CPU cores for the fastest solve. 0 = let CP-SAT decide
-    # (one worker per core). Peak memory is bounded instead by the container's
-    # mem_limit combined with running the solve in a killable child process: if
-    # a run exceeds the budget the OS kills only the child, not the API. Set
-    # SOLVER_WORKERS to a small number as an escape hatch if OOM-kills recur.
     solver.parameters.num_search_workers = int(os.getenv("SOLVER_WORKERS", "0"))
     return solver
 
@@ -215,7 +209,7 @@ def _new_solver(max_seconds: float):
 def _compute_gap(solver) -> dict:
     """
     Computes the optimality gap between the best solution found and the
-    theoretical upper bound. Only call this when status is FEASIBLE or OPTIMAL.
+    theoretical upper bound (points mode only). Only call this when status is FEASIBLE or OPTIMAL.
     """
     objective    = solver.ObjectiveValue()
     best_bound   = solver.BestObjectiveBound()
@@ -326,13 +320,10 @@ def run_solve_task(job_id: str, raw_data: dict):
             try:
                 msg = progress_queue.get(timeout=1.0)
             except queue_mod.Empty:
-                # No message this second: stop once the child is gone.
                 if not proc.is_alive():
                     break
                 continue
 
-            # A cancel may have landed while we were reading. Never resurrect a
-            # cancelled job by writing a later progress/final update over it.
             current = get_job(job_id)
             if current and current["status"] == "cancelled":
                 break
@@ -345,7 +336,7 @@ def run_solve_task(job_id: str, raw_data: dict):
                     job_id,
                     status=msg["status"],
                     stats=msg["stats"],
-                    result=msg.get("result"),  # None keeps the best-so-far result
+                    result=msg.get("result"),
                 )
                 break
     finally:
@@ -354,8 +345,6 @@ def run_solve_task(job_id: str, raw_data: dict):
             proc.terminate()
         unregister_process(job_id)
 
-    # Child died without reporting a terminal outcome (e.g. killed by OOM) and
-    # the job wasn't cancelled: surface it rather than leaving it "solving".
     if not final_seen:
         job = get_job(job_id)
         if job and job["status"] not in ("cancelled", "completed", "failed"):

@@ -7,10 +7,6 @@ from typing import Dict, Any
 _jobs: Dict[str, Any] = {}
 _lock = threading.Lock()
 
-# Once a run finishes, the frontend reads the final result on its next poll and keeps
-# it as the schedule's last run, so the backend copy has no further use. A finished job
-# is kept only long enough to survive that final poll, then dropped. Active jobs are
-# never dropped.
 _FINISHED_JOB_SECONDS = 60
 
 _TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
@@ -84,11 +80,8 @@ def update_job(job_id: str, status: str = None, stats: dict = None, result: list
 
 def get_job(job_id: str):
     with _lock:
-        # Sweep on reads too, so finished jobs are cleared promptly after the
-        # client's final poll even when no new job is started to trigger a write.
         _evict_locked()
         job = _jobs.get(job_id)
         if job is None:
             return None
-        # Return a copy without the internal bookkeeping field.
         return {k: v for k, v in job.items() if k != "updated_at"}

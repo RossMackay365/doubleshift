@@ -33,11 +33,7 @@ def diagnose_infeasibility(data: dict) -> list[str]:
     capacity        = data.get("capacity", [1] * len(trainers))
     space_venue     = data.get("space_venue", {})
     location_to_idx = data.get("location_to_idx", {})
-    # Mention genders in messages only when the groups actually have more than one.
     gendered = len({str(g.get("gender", "")).strip().lower() for g in groups}) > 1
-    # With trainers assigned to groups, each group's trainer is chosen directly: a group
-    # without one is reported as unassigned, and the qualification-coverage checks
-    # (which look for groups with too few qualified trainers) don't apply.
     assigned = bool(data.get("assign_trainers"))
 
     num_g = len(groups)
@@ -45,7 +41,7 @@ def diagnose_infeasibility(data: dict) -> list[str]:
     num_s = len(timeslots)
     num_c = len(spaces)
 
-    # --- Per-group checks ---
+    ### Per-group checks ###
     for gi, group in enumerate(groups):
         g_name = group.get("name") or f"group {gi}"
         level  = group.get("level")
@@ -138,7 +134,7 @@ def diagnose_infeasibility(data: dict) -> list[str]:
 
     capable_by_group = {gi: _capable_trainers(gi) for gi in range(num_g)}
 
-    # --- Trainer bottleneck check ---
+    ### Trainer bottleneck check ###
     # If a trainer is the ONLY qualified option for more groups than their capacity,
     # the problem is trivially infeasible regardless of slot arrangements.
     sole_groups: dict = defaultdict(list)
@@ -162,7 +158,7 @@ def diagnose_infeasibility(data: dict) -> list[str]:
     for i, s in enumerate(timeslots):
         slots_by_day[s['day']].append(i)
 
-    # --- Total space and timeslot capacity check ---
+    ### Total space and timeslot capacity check ###
     total_capacity = num_c * num_s
     if num_g > total_capacity:
         issues.append(
@@ -171,7 +167,7 @@ def diagnose_infeasibility(data: dict) -> list[str]:
             f"Add spaces or timeslots."
         )
 
-    # --- Per-day demand vs capacity check ---
+    ### Per-day demand vs capacity check ###
     # Detects when too many groups are locked to one day (their valid assignments only
     # exist on that day), so there aren't enough space-slots to fit them all.
 
@@ -232,7 +228,7 @@ def diagnose_infeasibility(data: dict) -> list[str]:
                 f"Add spaces or timeslots on {day}, or make these groups available on other days."
             )
 
-    # --- Trainer qualification coverage checks ---
+    ### Trainer qualification coverage checks ###
 
     # 1. Global capacity: total trainer capacity must be >= number of groups.
     total_trainer_capacity = sum(capacity[ti] for ti in range(num_t))
@@ -270,8 +266,7 @@ def diagnose_infeasibility(data: dict) -> list[str]:
                 f"Add trainers for these groups or raise their capacity."
             )
 
-    # 3. Groups with very few qualified trainer options: bottleneck candidates even
-    #    when no single trainer is the sole option.
+    # 3. Groups with very few qualified trainer options: bottleneck candidates even when no single trainer is the sole option.
     thin_groups: list = []
     for gi in range(num_g):
         g_name  = groups[gi].get('name', f'group {gi}')
@@ -291,7 +286,7 @@ def diagnose_infeasibility(data: dict) -> list[str]:
                 f"{_count(len(thin_groups) - 6, 'more group')} also depend on only one or two trainers."
             )
 
-    # --- Required group rules ---
+    ### Required group rules ###
     # They forbid certain groups from clashing; enough of them can leave no valid
     # arrangement even when everything else fits, so mention them as a possible cause.
     required_rules = [pair for pair in data.get("group_rule_pairs", []) if pair[2]]

@@ -31,7 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+### Solver Routes ###
 @app.post("/api/solve", status_code=202)
 async def solve(request: SolveRequest, background_tasks: BackgroundTasks):
     job_id = str(uuid.uuid4())
@@ -63,12 +63,11 @@ async def cancel(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="This run is no longer available. Please run the scheduler again.")
 
-    # Already finished: nothing to stop; report the terminal state as-is.
+    # Already Finished - Return State
     if job["status"] in ("completed", "failed", "cancelled"):
         return {"job_id": job_id, "status": job["status"], "message": "Job already finished"}
 
-    # Kill the solver child process, freeing its memory immediately. The best
-    # schedule found so far is left in place so the user can still edit/verify it.
+    # Kill Solver Child Process
     proc = get_process(job_id)
     if proc is not None and proc.is_alive():
         proc.terminate()
@@ -101,9 +100,6 @@ async def verify(request: VerifyRequest):
 
     schedule_entries = [e.model_dump() for e in request.schedule]
 
-    # Verify only checks feasibility and computes the schedule's score: it needs
-    # no job state. The optimality gap is derived on the frontend, which already
-    # holds the solver's best_bound from the run.
     try:
         result = verify_schedule(raw_data, schedule_entries, request.reward_config)
         return result
@@ -111,9 +107,7 @@ async def verify(request: VerifyRequest):
         raise HTTPException(status_code=422, detail=str(e))
 
 
-# --- Saved schedules (.doubleshift files) ---
-# A schedule is identified by its file path.
-
+### Schedule File Routes ###
 @app.get("/api/schedules")
 def list_schedules():
     return {"folder": schedules.SCHEDULES_DIR, "schedules": schedules.list_schedules()}
@@ -176,12 +170,7 @@ def delete_schedule(path: str):
         raise HTTPException(status_code=409, detail="This schedule couldn't be deleted. If another program has the file open, close it and try again.")
 
 
-# --- The app itself ---
-# The frontend's static build (frontend/out) is served at /, after the API routes so they
-# take priority. It's bundled with the desktop app, copied into the Docker image, and
-# DOUBLESHIFT_FRONTEND_DIR overrides where to find it. With no build (e.g. while using
-# `npm run dev`), only the API runs.
-
+# Determine Frontend Directory File
 def _frontend_dir():
     if os.getenv("DOUBLESHIFT_FRONTEND_DIR"):
         return os.getenv("DOUBLESHIFT_FRONTEND_DIR")

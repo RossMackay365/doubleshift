@@ -18,10 +18,9 @@ DATA_DIR = os.getenv("DOUBLESHIFT_DATA_DIR") or user_data_dir("DoubleShift", app
 RECENT_PATH = os.path.join(DATA_DIR, "recent.json")
 
 EXTENSION = ".doubleshift"
-# Bump when the file format changes, and keep reading older versions.
 FILE_VERSION = 1
 CONTENT_FIELDS = ("data", "settings", "last_run")
-RECENT_COUNT = 3  # what fits on the home page without scrolling
+RECENT_COUNT = 3
 INVALID_NAME_CHARS = '\\/:*?"<>|'
 
 
@@ -40,7 +39,6 @@ EXAMPLES_DIR = (
     os.path.join(sys._MEIPASS, "examples") if getattr(sys, "frozen", False)
     else os.path.join(os.path.dirname(__file__), "..", "examples")
 )
-# Listed in this order, top first.
 EXAMPLES = ("Simple Example", "Complex Example")
 EXAMPLES_MARKER = os.path.join(DATA_DIR, "examples-added")
 
@@ -48,7 +46,7 @@ EXAMPLES_MARKER = os.path.join(DATA_DIR, "examples-added")
 def _add_examples():
     if os.path.exists(EXAMPLES_MARKER):
         return
-    for name in reversed(EXAMPLES):  # the recent list puts the last one added on top
+    for name in reversed(EXAMPLES):
         source = os.path.join(EXAMPLES_DIR, name + EXTENSION)
         path = os.path.join(SCHEDULES_DIR, name + EXTENSION)
         if not os.path.isfile(source):
@@ -73,8 +71,6 @@ def _check_path(path):
 
 
 def _write(path, contents):
-    # Write to a temporary file first, then swap it in, so a crash mid-save never
-    # leaves a half-written schedule.
     file = {"version": FILE_VERSION, **{field: contents.get(field) for field in CONTENT_FIELDS}}
     fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as f:

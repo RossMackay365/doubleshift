@@ -1,7 +1,5 @@
 import itertools
 
-# Every reward the solver supports. The points for each come with every request (from
-# the schedule's Scheduler Settings); a penalty's points count against the schedule.
 REWARD_KEYS = (
     'REWARD_SAME_DAY', 'PENALTY_WAIT_TIME', 'PENALTY_GROUP_RULES', 'REWARD_NO_TRAVEL', 'REWARD_SAME_GENDER_B2B',
     'REWARD_ADJ_GROUP_B2B', 'REWARD_ADJ_GROUP_SAME_DAY', 'PENALTY_ADJ_BLOCKED',
@@ -29,10 +27,10 @@ def apply_constraints(model, x, data):
     space_venue    = data.get('space_venue', {})
     travel_minutes = data.get('travel_minutes', {})
     raw_timeslots  = data['raw']['timeslots']
-    # Different slots whose times overlap (e.g. 16:30-18:00 and 17:00-18:30): rules 2, 3
-    # and 5 apply across them as well as within a single slot.
+    # Determine Clashing Timeslots
     clashes = clashing_slot_pairs(raw_timeslots)
 
+    ### HARD CONSTRAINTS ###
     # 1. Group Coverage: each group gets exactly one session
     for g in range(num_g):
         group_vars = [x[g, t, c, s] for t in range(num_t) for c in range(num_c) for s in range(num_s) if (g, t, c, s) in x]
@@ -128,13 +126,12 @@ def apply_constraints(model, x, data):
                                 model.Add(has_src + has_dst <= 1)
 
 
-    # --- SOFT CONSTRAINTS (REWARDS) ---
+    ### SOFT CONSTRAINTS (REWARDS & PENALTIES) ###
     rewards = {key: [] for key in REWARD_KEYS}
     slots_by_day = group_slots_by_day(raw_timeslots)
     consecutive  = consecutive_slot_pairs(raw_timeslots)
 
-    # 7. Same Day reward and Wait Time penalty, per trainer, over all their activities
-    #    (coaching, and playing in their own group).
+    # 7. Same Day Reward and Wait Time Penalty: Per trainer, over all their activities (coaching, and playing in their own group).
     #    - Same Day: one per trainer whose activities aren't spread over 2+ days. Trainers
     #      with 0 or 1 activities count too, so the reward never favours giving anyone more
     #      or fewer sessions.
@@ -196,9 +193,8 @@ def apply_constraints(model, x, data):
                 model.AddMultiplicationEquality(consec, [has_s, has_next])
                 rewards['REWARD_SAME_GENDER_B2B'].append(consec)
 
-    # No Travel reward: +10000 per trainer per day where all activities are at the same venue.
+    # No Travel Reward: Per trainer per day where all activities are at the same venue.
     # Only applies when the trainer has possible activities in 2+ distinct slots on that day
-    # (a single activity can never involve travel, so it shouldn't count).
     if space_venue and len(set(space_venue.values())) >= 2:
         spaces_by_venue: dict = {}
         for ci, venue in space_venue.items():
@@ -347,7 +343,7 @@ def apply_constraints(model, x, data):
                     else:
                         rewards['REWARD_ADJ_GROUP_SAME_DAY'].append(same_day)
 
-        # Trainer Cannot Sub penalty: fires for each slot where a lower-level group's trainer
+        # Trainer Cannot Sub Penalty: Penalises each slot where a lower-level group's trainer
         # coaches while the higher-level group is playing (in that slot or an overlapping one),
         # independent of B2B.
         same_time = {s: {s} for s in range(num_s)}
@@ -382,7 +378,7 @@ def apply_constraints(model, x, data):
                     model.AddMultiplicationEquality(pen, [higher_at_s, blk])
                     rewards['PENALTY_ADJ_BLOCKED'].append(pen)
 
-    # 8. Group rules: a group should avoid conflicts with another, e.g. so a team's players
+    # 8. Group Rules: a group should avoid conflicts with another, e.g. so a team's players
     #    can watch other groups train. A conflict is the minutes of the other group's session
     #    they'd miss (see missed_minutes): required rules forbid any, preferred ones are
     #    penalised per minute.
@@ -420,7 +416,7 @@ def apply_constraints(model, x, data):
     return rewards
 
 
-# --- Timeslot helpers (shared with verify.py) ---
+### TIMESLOT HELPERS ###
 # Slots are compared by their actual times, so timeslots can overlap (e.g. an extra
 # space from 17:00-18:30 alongside 16:30-18:00) and can be entered in any order.
 

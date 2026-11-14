@@ -2,8 +2,7 @@
 #
 # Build the frontend first (cd frontend, npm run build), then from this folder:
 #   pyinstaller doubleshift.spec
-# The app is in dist/DoubleShift (DoubleShift.exe plus its files). Test it there before
-# packaging it as an MSIX.
+# The app is in dist/DoubleShift (DoubleShift.exe plus its files).
 
 import os
 from PyInstaller.utils.hooks import collect_all, collect_submodules

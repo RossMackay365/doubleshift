@@ -30,7 +30,7 @@ def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, b
 
     violations: list[str] = []
 
-    # --- Parse and validate entry references ---
+    # Parse and Validate Entry References
     parsed: list[tuple] = []  # (gi, ti, ci, si)
     for entry in schedule_entries:
         g_name = entry.get('group')
@@ -43,7 +43,7 @@ def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, b
         ci = space_name_to_ci.get(c_name)
         si = slot_id_to_si.get(s_id)
 
-        # The data has changed since this schedule was made.
+        # Check for Modified Data Since Solver Run
         if gi is None: violations.append(f'"{g_name}" is in the schedule but no longer in your groups.'); continue
         if ti is None: violations.append(f'"{t_name}" is in the schedule but no longer in your trainers.'); continue
         if ci is None: violations.append(f'"{c_name}" is in the schedule but no longer one of your spaces.'); continue
@@ -63,7 +63,7 @@ def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, b
     loc_names   = raw.get('location_names', [])
     loc_to_idx  = {name: i for i, name in enumerate(loc_names)}
 
-    # --- Per-entry: availability, qualification, membership, location ---
+    ### Per-Entry: availability, qualification, membership, location ###
     for gi, ti, ci, si in parsed:
         g_name     = groups[gi]['name']
         t_name     = trainers[ti]['name']
@@ -100,7 +100,7 @@ def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, b
                     f'"{g_name}" can\'t train at "{venue}". Its Locations don\'t include it.'
                 )
 
-    # --- Hard 1: Each group assigned exactly once ---
+    ### Hard 1: Each group assigned exactly once ###
     group_sessions: dict = defaultdict(int)
     for gi, _, _, _ in parsed:
         group_sessions[gi] += 1
@@ -112,7 +112,7 @@ def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, b
         elif count > 1:
             violations.append(f'"{group["name"]}" has {count} sessions. Each group needs exactly one.')
 
-    # --- Hard 2: At most one group per space per slot ---
+    ### Hard 2: At most one group per space per slot ###
     space_slot: dict = defaultdict(list)
     for gi, _, ci, si in parsed:
         space_slot[(ci, si)].append(groups[gi]['name'])
@@ -142,7 +142,7 @@ def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, b
                         f'"{g1}" ({when(s1)}) and "{g2}" ({when(s2)}).'
                     )
 
-    # --- Hard 3+4: Trainer capacity and per-slot conflict ---
+    ### Hard 3+4: Trainer capacity and per-slot conflict ###
     trainer_groups: dict = defaultdict(list)
     trainer_slot_groups: dict = defaultdict(list)
     for gi, ti, _, si in parsed:
@@ -174,7 +174,7 @@ def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, b
                         f'"{g1}" ({when(s1)}) and "{g2}" ({when(s2)}).'
                     )
 
-    # --- Hard 5: Trainer can't play and coach at the same slot ---
+    ### Hard 5: Trainer can't play and coach at the same slot ###
     playing_slots: dict = defaultdict(set)   # ti -> {si, ...}
     coaching_slots: dict = defaultdict(set)  # ti -> {si, ...}
 
@@ -202,7 +202,7 @@ def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, b
                         f"with their own group's session ({when(play_s)})."
                     )
 
-    # --- Hard 6: Trainer travel time ---
+    ### Hard 6: Trainer travel time ###
     travel_minutes = data.get('travel_minutes', {})
     if travel_minutes:
         slots_by_day = group_slots_by_day(timeslots)
@@ -240,7 +240,7 @@ def verify_schedule(raw_data: dict, schedule_entries: list, rewards_cfg: dict, b
                                 f"{timeslots[s2]['start']}), but the trip takes {travel} minutes."
                             )
 
-    # --- Hard 7: Required group rules ---
+    ### Hard 7: Required group rules ###
     placed = _group_placements(parsed)
     for gi, gj, required in data.get('group_rule_pairs', []):
         if not required:
@@ -324,7 +324,7 @@ def _count_rewards(data: dict, parsed: list) -> dict:
                         any(str(groups[gi].get('gender', '')).strip().lower() == gender for gi in gi_s2)):
                     counts['REWARD_SAME_GENDER_B2B'] += 1
 
-    # No Travel reward: +100 per trainer per day where all activities are at the same venue.
+    # No Travel reward: Reward per trainer per day where all activities are at the same venue.
     # Mirrors constraints.py: fires only when trainer has structural access to 2+ venues that
     # day (venue_active >= 2 check) AND actually has 2+ active slots (1 activity = no travel).
     space_venue = data.get('space_venue', {})
