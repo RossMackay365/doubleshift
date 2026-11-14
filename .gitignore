@@ -59,3 +59,6 @@ backend/dist/
 
 # Private build and release notes
 packaging/Packing Instructions.md
+
+# Screenshots for Microsoft Store Submission
+packaging/screenshots/
