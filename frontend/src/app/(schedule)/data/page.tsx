@@ -338,20 +338,22 @@ function AvailabilityCell({
           .sort((a, b) => toMinutes(timeslots[a].start) - toMinutes(timeslots[b].start));
         const allAvailable = daySlots.every(i => bits[i]);
         return (
-          <div key={day} className="flex flex-wrap items-center gap-1.5">
+          <div key={day} className="flex items-start gap-1.5">
             <button
               type="button"
               onClick={() => setAvailable(daySlots, !allAvailable)}
               title={allAvailable ? `Make all of ${day} unavailable` : `Make all of ${day} available`}
-              className="w-10 shrink-0 text-left text-xs font-semibold text-gray-600 hover:text-blue-700"
+              className="w-10 shrink-0 py-0.5 text-left text-xs font-semibold text-gray-600 hover:text-blue-700"
             >
               {day.slice(0, 3)}
             </button>
-            {daySlots.map(i => (
-              <Chip key={i} selected={bits[i]} onClick={() => setAvailable([i], !bits[i])}>
-                {timeslots[i].start}-{timeslots[i].finish}
-              </Chip>
-            ))}
+            <div className="flex min-w-0 flex-wrap gap-1.5">
+              {daySlots.map(i => (
+                <Chip key={i} selected={bits[i]} onClick={() => setAvailable([i], !bits[i])}>
+                  {timeslots[i].start}-{timeslots[i].finish}
+                </Chip>
+              ))}
+            </div>
           </div>
         );
       })}
