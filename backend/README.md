@@ -23,7 +23,6 @@ backend/
 │   ├── diagnostics.py  # Finds likely causes when no schedule is possible
 │   ├── schedules.py    # Saved schedules (.doubleshift files) and the recently opened list
 │   └── state.py        # In-memory job state (thread-safe)
-├── examples/                  # Simple Example and Complex Example, copied to the schedules folder on first run
 ├── desktop.py                 # The Windows app: runs the backend on 127.0.0.1 and opens a window
 ├── doubleshift.spec           # PyInstaller build of the Windows app
 ├── requirements.txt
@@ -85,7 +84,7 @@ All environment variables are optional. The solver time limit is not an environm
 | `POST /api/cancel/{job_id}` | Stops a running job and keeps the best schedule found so far |
 | `POST /api/verify` | Checks a schedule against every hard constraint and returns any violations, its reward counts and its score |
 
-The solve request holds groups, trainers, spaces, timeslots, travel times, group rules, `reward_config`, `reward_mode`, `reward_order` and `max_solve_seconds`.
+The solve request holds groups, trainers, spaces, timeslots, travel times, group rules, `trainer_mode`, `session_rules`, `reward_config`, `reward_mode`, `reward_order` and `max_solve_seconds`.
 
 Status lifecycle: `pending → processing → solving → completed | failed | cancelled`
 
@@ -124,10 +123,10 @@ There is one boolean variable for each `(group, trainer, space, timeslot)` combi
 
 ### Hard Constraints (`constraints.py`)
 
-1. Each group gets exactly one session.
+1. Each group gets its number of sessions (`sessions`, 1 by default), following the session rules (see Multiple Sessions below).
 2. A space holds at most one group at any time.
 3. A trainer trains at most one group at any time.
-4. A trainer trains no more groups than their capacity.
+4. A trainer trains no more groups than their capacity. Capacity counts groups, not sessions.
 5. A trainer never trains while their own group has its session.
 6. A trainer can't be at one location and then another if the gap between the two sessions is shorter than the travel time.
 7. Required group rules are never broken (see Group Rules below).
@@ -140,17 +139,17 @@ A timeslot can be limited to locations (`location_bitmask`) or, with space-speci
 
 Rewards are the soft constraints. Each schedule's Scheduler Settings decide them, and they arrive in `reward_config` (`{ REWARD_KEY: points }`, 0 when off). Points for every reward in `REWARD_KEYS` are required. The backend has no defaults of its own. See the [root README](../README.md#rewards) for the reward table.
 
-`apply_constraints()` returns each reward's terms (`{ reward key: [variables] }`). Most terms are 0 or 1: a reward achieved once, or a penalty incurred once. The two per-minute penalties use integer minutes. `solver.py` turns the terms into the objective:
+Every reward is a penalty: it counts something unwanted, and the solver keeps the counts as low as it can. `apply_constraints()` returns each reward's terms (`{ reward key: [variables] }`). Most terms are 0 or 1: the penalty incurred once. Minimise Days uses whole days, and the two per-minute penalties use integer minutes. `solver.py` turns the terms into the objective:
 
-- **Points** (`reward_mode: "points"`): maximise the points-weighted total, with penalties subtracted.
+- **Points** (`reward_mode: "points"`): minimise the points-weighted total. The gap is how far the score could still be above `best_bound`, the lowest score possible.
 - **Priority Order** (`reward_mode: "hierarchical"`): optimise each reward in `reward_order` in turn. After each stage its result is locked in as a constraint, and the next stage starts from that schedule as a hint. Each stage gets an equal share of the remaining time, so a stage that finishes early passes its spare time on. Rewards with nothing to optimise are skipped. Progress stats include `stage`, `stage_count` and `stage_name`.
 
-Both modes report `reward_counts` (how often each reward was achieved) in the final stats. `POST /api/verify` returns the same counts for an edited schedule.
+Both modes report `reward_counts` (how often each reward's penalty was incurred) in the final stats. `POST /api/verify` returns the same counts for an edited schedule.
 
 Some details of how rewards are measured:
 
-- **Same Day** and **Minimise Wait Time** look at all of a trainer's activities: the sessions they train and their own group's session. Same Day counts every trainer whose activities fall on at most one day. Wait time is, for each trainer and day, the minutes from their first start to their last finish that are not spent in a session. It is computed exactly with `AddMinEquality` and `AddMaxEquality`.
-- **Back-to-back** rewards use "consecutive" timeslots: the next slot by start time on the same day, provided the two don't overlap.
+- **Minimise Days** and **Minimise Wait Time** look at all of a trainer's activities: the sessions they train and their own group's session. Minimise Days counts, for each trainer, every day they are active after their first, so a trainer on one day costs nothing. Wait time is, for each trainer and day, the minutes from their first start to their last finish that are not spent in a session. It is computed exactly with `AddMinEquality` and `AddMaxEquality`.
+- **Adjacent Groups** count pairs of groups one level apart (with the same gender), once per pair: a pair that trains back-to-back, or on the same day, at least once isn't counted. **Back-to-back** uses "consecutive" timeslots: the next slot by start time on the same day, provided the two don't overlap.
 - The shared helpers (`group_slots_by_day`, `clashing_slot_pairs`, `consecutive_slot_pairs`) live in `constraints.py`. `verify.py` uses them too, and the frontend's `lib/scoreBreakdown.ts` mirrors them.
 
 ### Group Rules
@@ -164,9 +163,26 @@ A conflict between two placements is `missed_minutes` (`constraints.py`): the mi
 
 `verify.py` reports broken required rules and counts the minutes for preferred ones. `diagnostics.py` mentions required rules when no schedule is possible.
 
-### Assigned Trainers
+### Trainer Modes
 
-With `assign_trainers: true`, each trainer's `assigned_groups` (group IDs) replace level-based qualifications. A trainer qualifies only for the groups they are assigned. Diagnostics then report groups with no trainer assigned, not qualification problems.
+`trainer_mode` decides which trainers qualify for each group (`_calculate_qualifications` in `transform.py`):
+
+- `chosen`: any trainer whose level qualifies them. `assigned_groups` are ignored.
+- `assigned`: only the trainer who has the group in their `assigned_groups` (group IDs). A group nobody is assigned to has no trainer, and diagnostics report it.
+- `mixed`: a group that is in a trainer's `assigned_groups` is trained by that trainer. Any other group goes to a trainer whose level qualifies them. An assigned trainer with spare capacity can take those too.
+
+The backend always schedules trainers. For a schedule without trainers, the frontend sends one placeholder trainer for each group, assigned to it and always available (see `applySettings` in the frontend's `lib/settings.ts`).
+
+### Multiple Sessions
+
+A group with `sessions` above 1 gets that many sessions. It is never in two places at once, and `session_rules` decide the rest:
+
+- `same_day` (default `false`): when false, each of a group's sessions is on a different day.
+- `same_trainer` (default `true`): when true, one trainer takes all of a group's sessions.
+
+The rules live in one block in `constraints.py`, next to constraint 1, and `verify.py` checks the same ones. A new rule, such as a minimum gap between sessions, needs a field in `SessionRules` (`schemas.py`), a constraint in that block and a check in `verify.py`.
+
+Rewards look at every session. For example, two groups one level apart count as back-to-back if any of their sessions follow each other.
 
 ### Live Results
 
@@ -174,7 +190,7 @@ The solver uses a `CpSolverSolutionCallback` that fires each time it finds a bet
 
 ### When No Schedule Is Possible (`diagnostics.py`)
 
-When the solver returns INFEASIBLE, `diagnose_infeasibility()` runs a set of independent checks for likely causes: groups no trainer can train, availability gaps, trainer bottlenecks, too much demand on one day, and capacity shortfalls for one gender. It reports every failing check, not just the first.
+When the solver returns INFEASIBLE, `diagnose_infeasibility()` runs a set of independent checks for likely causes: groups no trainer can train, availability gaps, groups with too little availability for their sessions, trainer bottlenecks, too much demand on one day, and capacity shortfalls for one gender. It reports every failing check, not just the first.
 
 ## Notes for Contributors
 

@@ -5,7 +5,7 @@ import { GripVertical, Trash2 } from 'lucide-react';
 import { useSchedule } from '@/components/ScheduleProvider';
 import { deleteSchedule } from '@/lib/api';
 import { desktopApi } from '@/lib/desktop';
-import { REWARDS, SOLVE_TIME_OPTIONS, spacesNamed, isRewardActive, rankedRewards, unavailableReason } from '@/lib/settings';
+import { REWARDS, SOLVE_TIME_OPTIONS, TRAINER_MODES, spacesNamed, isRewardActive, rankedRewards, unavailableReasons } from '@/lib/settings';
 import { RewardSetting, ScheduleData, ScheduleSettings } from '@/lib/types';
 
 // The open schedule's Scheduler Settings. Changes go into the schedule's working copy
@@ -37,42 +37,101 @@ export default function SettingsPage() {
 
       <Section
         title="Rewards"
-        intro="Every schedule follows your data. Rewards tell the scheduler which of those schedules you prefer."
+        intro="Every schedule follows your data. Rewards tell the scheduler which of those schedules you prefer. Each reward works by adding to the schedule's score whenever something you'd rather avoid happens, such as an extra day for a trainer, and the scheduler keeps that score as low as it can."
       >
         <SettingRow
           name="Reward Mode"
           description={'Priority Order: The scheduler works through your rewards from the top. It never gives up a higher reward to improve a lower one.\n'
-            + 'Points: Each reward adds its points every time the schedule achieves it, and a penalty takes its points away each time it happens. The schedule with the most points wins.'}
+            + "Points: Each time something a reward counts happens, the reward's points are added to the schedule's score. The schedule with the lowest score wins."}
         >
-          <ModeToggle mode={settings.rewardMode} onChange={rewardMode => update({ rewardMode })} />
+          <ModeToggle value={settings.rewardMode} options={REWARD_MODES} onChange={rewardMode => update({ rewardMode })} />
         </SettingRow>
         <RewardList settings={settings} data={data} onChange={rewards => update({ rewards })} />
       </Section>
 
-      <Section title="Groups and Trainers">
+      <Section title="Trainers">
+        <SettingRow
+          name="Trainers"
+          description={'On: Every session has a trainer, and the scheduler never puts a trainer in two places at once. The rewards for trainers, such as Minimise Days, become available.\nOff: The scheduler only places your groups, and the Trainers tab is hidden.'}
+        >
+          <Switch checked={settings.trainers} onChange={trainers => update({ trainers })} />
+        </SettingRow>
+        {settings.trainers && (
+          <SubSettings>
+            <SettingRow
+              name="Choosing Trainers"
+              description={'Manual: You choose which groups each trainer trains, and the scheduler picks the times and spaces.\n'
+                + 'Mixed: You choose the trainers for some groups, and the scheduler chooses the rest, using their levels.\n'
+                + 'Automatic (Level-Based): The scheduler chooses every trainer, using their levels.'}
+            >
+              <select
+                value={settings.trainerMode}
+                onChange={e => update({ trainerMode: e.target.value as ScheduleSettings['trainerMode'] })}
+                aria-label="Choosing Trainers"
+                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-800 focus:border-blue-500 focus:outline-none"
+              >
+                {TRAINER_MODES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </SettingRow>
+          </SubSettings>
+        )}
+      </Section>
+
+      <Section title="Groups">
         <SettingRow
           name="Gendered Groups"
-          description={'On: Each group is female or male, and trainers have a level for each.\nOff: All groups and trainers share one set of levels.'}
+          description={'On: Each group is female or male, and trainers have a level for each. The Same Gender Back-to-Back reward becomes available.\nOff: All groups and trainers share one set of levels.'}
         >
           <Switch checked={settings.genderedTeams} onChange={genderedTeams => update({ genderedTeams })} />
         </SettingRow>
         <SettingRow
-          name="Assign Trainers to Groups"
-          description={'On: You choose which groups each trainer trains, and the scheduler picks the times and spaces.\nOff: The scheduler also chooses the trainers, using their levels.'}
+          name="Substitutions"
+          description={'On: Every group needs a level, and three rewards become available: Adjacent Groups Back-to-Back, Adjacent Groups Same Day and Trainer Available to Sub in Higher Group. They reward schedules where people can fill in for the group one level above their own.\n'
+            + 'Off: Sessions are scheduled without thinking about substitutes.'}
         >
-          <Switch checked={settings.assignTrainers} onChange={assignTrainers => update({ assignTrainers })} />
+          <Switch checked={settings.substitutions} onChange={substitutions => update({ substitutions })} />
         </SettingRow>
         <SettingRow
           name="Group Rules"
-          description={"On: The Data page gets a Group Rules tab, where you can let members of some groups attend other groups' sessions. Each rule is either required, or preferred and scored by the Group Rules reward above.\nOff: Sessions are scheduled without group rules."}
+          description={"On: The Data page gets a Group Rules tab, where you can let members of some groups attend other groups' sessions. Each rule is either required, or preferred and counted by the Group Rules reward.\nOff: Sessions are scheduled without group rules."}
         >
           <Switch checked={settings.groupRules} onChange={groupRules => update({ groupRules })} />
         </SettingRow>
       </Section>
 
-      <Section title="Locations and Timeslots">
+      <Section title="Locations, Timeslots and Sessions">
         <SettingRow
-          name="Name Spaces"
+          name="Multiple Sessions"
+          description={'On: Each group has a Sessions number on the Groups tab, so a group can train more than once.\nOff: Every group gets one session.'}
+        >
+          <Switch checked={settings.multipleSessions} onChange={multipleSessions => update({ multipleSessions })} />
+        </SettingRow>
+        {settings.multipleSessions && (
+          <SubSettings>
+            <SettingRow
+              name="Same Day"
+              description={"On: A group can have more than one session on the same day.\nOff: Each of a group's sessions is on a different day."}
+            >
+              <Switch checked={settings.sessionsSameDay} onChange={sessionsSameDay => update({ sessionsSameDay })} />
+            </SettingRow>
+            {settings.trainers && (
+              <SettingRow
+                name="Same Trainer"
+                description={"On: One trainer takes all of a group's sessions.\nOff: Each of a group's sessions can have a different trainer."}
+              >
+                <Switch checked={settings.sessionsSameTrainer} onChange={sessionsSameTrainer => update({ sessionsSameTrainer })} />
+              </SettingRow>
+            )}
+          </SubSettings>
+        )}
+        <SettingRow
+          name="Space-Specific Timeslots"
+          description={'On: You choose the spaces each timeslot runs in, so spaces at one location can have different times.\nOff: You choose the locations each timeslot runs at.'}
+        >
+          <Switch checked={settings.spaceTimeslots} onChange={spaceTimeslots => update({ spaceTimeslots })} />
+        </SettingRow>
+        <SettingRow
+          name="Space Names"
           description={settings.spaceTimeslots
             ? 'Always on while Space-Specific Timeslots is on. Give every space a name on the Locations tab.'
             : 'On: You name each space on the Locations tab, such as Hall A or Pool 2. Two spaces at one location need different names.\nOff: Spaces are numbered.'}
@@ -82,12 +141,6 @@ export default function SettingsPage() {
             disabled={settings.spaceTimeslots}
             onChange={nameSpaces => update({ nameSpaces })}
           />
-        </SettingRow>
-        <SettingRow
-          name="Space-Specific Timeslots"
-          description={'On: You choose the spaces each timeslot runs in, so spaces at one location can have different times.\nOff: You choose the locations each timeslot runs at.'}
-        >
-          <Switch checked={settings.spaceTimeslots} onChange={spaceTimeslots => update({ spaceTimeslots })} />
         </SettingRow>
       </Section>
 
@@ -175,6 +228,11 @@ function Section({ title, intro, children }: { title: string; intro?: string; ch
   );
 }
 
+// Settings that belong to the switch above them, shown indented while it is on.
+function SubSettings({ children }: { children: React.ReactNode }) {
+  return <div className="ml-6 divide-y divide-gray-100 border-l-2 border-gray-200 pl-5">{children}</div>;
+}
+
 function SettingRow({ name, description, children }: { name: string; description: string; children: React.ReactNode }) {
   return (
     <div className="py-4">
@@ -198,7 +256,7 @@ function SettingRow({ name, description, children }: { name: string; description
 }
 
 // A description line that starts with one of these labels shows the label in bold.
-const LINE_LABEL = /^(On|Off|Priority Order|Points):/;
+const LINE_LABEL = /^(On|Off|Priority Order|Points|Manual|Mixed|Automatic \(Level-Based\)):/;
 
 function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) {
   return (
@@ -216,11 +274,16 @@ function Switch({ checked, onChange, disabled }: { checked: boolean; onChange: (
   );
 }
 
-function ModeToggle({ mode, onChange }: { mode: ScheduleSettings['rewardMode']; onChange: (mode: ScheduleSettings['rewardMode']) => void }) {
-  const options = [
-    { value: 'hierarchical', label: 'Priority Order' },
-    { value: 'points', label: 'Points' },
-  ] as const;
+const REWARD_MODES: { value: ScheduleSettings['rewardMode']; label: string }[] = [
+  { value: 'hierarchical', label: 'Priority Order' },
+  { value: 'points', label: 'Points' },
+];
+
+function ModeToggle<T extends string>({ value, options, onChange }: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+}) {
   return (
     <div className="flex rounded-md border border-gray-300 p-0.5">
       {options.map(o => (
@@ -228,7 +291,7 @@ function ModeToggle({ mode, onChange }: { mode: ScheduleSettings['rewardMode']; 
           key={o.value}
           onClick={() => onChange(o.value)}
           className={`rounded px-4 py-1.5 text-sm font-medium transition-colors ${
-            mode === o.value ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+            value === o.value ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
           }`}
         >
           {o.label}
@@ -251,8 +314,8 @@ function RewardList({ settings, data, onChange }: {
   const hierarchical = settings.rewardMode === 'hierarchical';
   const active = rankedRewards(settings, data);
   const inactive = settings.rewards.filter(r => !isRewardActive(settings, data, r));
-  const off = inactive.filter(r => !unavailableReason(settings, data, r));
-  const unavailable = inactive.filter(r => unavailableReason(settings, data, r));
+  const off = inactive.filter(r => unavailableReasons(settings, data, r).length === 0);
+  const unavailable = inactive.filter(r => unavailableReasons(settings, data, r).length > 0);
 
   function setReward(key: string, changes: Partial<RewardSetting>) {
     onChange(settings.rewards.map(r => (r.key === key ? { ...r, ...changes } : r)));
@@ -281,7 +344,7 @@ function RewardList({ settings, data, onChange }: {
 
   function row(reward: RewardSetting, priority: number | null) {
     const def = REWARDS.find(r => r.key === reward.key)!;
-    const reason = unavailableReason(settings, data, reward);
+    const reasons = unavailableReasons(settings, data, reward);
     const draggable = hierarchical && priority !== null;
     return (
       <li
@@ -305,13 +368,14 @@ function RewardList({ settings, data, onChange }: {
         <div className="min-w-0 flex-1 pr-6">
           <div className="flex items-center gap-2">
             <span className="font-medium text-gray-800">{def.label}</span>
-            {def.isPenalty && (
-              <span title="In Points mode, these points are taken away each time it happens" className="rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-600">Penalty</span>
-            )}
-            {reason && (
-              <span className="rounded bg-gray-200 px-1.5 py-0.5 text-xs font-medium text-gray-600">{reason}</span>
-            )}
           </div>
+          {reasons.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {reasons.map(reason => (
+                <span key={reason} className="rounded bg-gray-200 px-1.5 py-0.5 text-xs font-medium text-gray-600">{reason}</span>
+              ))}
+            </div>
+          )}
           <p className="mt-1 max-w-lg text-sm text-gray-500">{def.description}</p>
         </div>
         {!hierarchical && (
@@ -329,7 +393,7 @@ function RewardList({ settings, data, onChange }: {
           </div>
         )}
         <div className="shrink-0 pt-0.5">
-          <Switch checked={reward.enabled} disabled={!!reason} onChange={enabled => setEnabled(reward, enabled)} />
+          <Switch checked={reward.enabled} disabled={reasons.length > 0} onChange={enabled => setEnabled(reward, enabled)} />
         </div>
       </li>
     );
@@ -359,7 +423,7 @@ function RewardList({ settings, data, onChange }: {
         'In Use',
         hierarchical
           ? 'The scheduler works through these from the top. Drag one to move it.'
-          : 'Each reward adds its points every time the schedule achieves it. A penalty takes its points away instead.',
+          : "Each reward adds its points to the score every time something it counts happens. Lower scores are better.",
         active.map((r, i) => row(r, i + 1)),
         true,
       )}

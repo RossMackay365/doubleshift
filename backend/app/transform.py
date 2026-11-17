@@ -3,26 +3,32 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def _calculate_qualifications(trainers: list[dict], groups: list[dict], assign_trainers: bool) -> list[list[int]]:
+def _calculate_qualifications(trainers: list[dict], groups: list[dict], trainer_mode: str) -> tuple[list[list[int]], list[bool]]:
     """
-    Returns a 2-D matrix [trainer_idx][group_idx] -> 1 (qualified) or 0.
+    Returns a 2-D matrix [trainer_idx][group_idx] -> 1 (qualified) or 0, and which groups
+    have an assigned trainer ([group_idx] -> bool).
 
-    When trainers are assigned to groups, a trainer qualifies only for their assigned groups.
+    A group assigned to a trainer is coached only by them. Any other group is coached by a
+    trainer whose level qualifies them, except in 'assigned' mode, where it has no trainer.
+    Assignments are ignored in 'chosen' mode.
     """
-    if assign_trainers:
-        return [
-            [1 if g["groupID"] in t.get("assigned_groups", []) else 0 for g in groups]
-            for t in trainers
-        ]
+    assigned_to = [
+        {ti for ti, t in enumerate(trainers) if trainer_mode != "chosen" and g["groupID"] in t.get("assigned_groups", [])}
+        for g in groups
+    ]
 
     matrix = []
-    for t in trainers:
+    for ti, t in enumerate(trainers):
         row = []
-        for g in groups:
+        for gi, g in enumerate(groups):
             group_level = int(g.get("level", 99))
             gender = str(g.get("gender", "")).strip().lower()
 
-            if gender == "female":
+            if assigned_to[gi]:
+                qualified = ti in assigned_to[gi]
+            elif trainer_mode == "assigned":
+                qualified = False
+            elif gender == "female":
                 qualified = t["femaleLevel"] != 0 and t["femaleLevel"] <= group_level
             elif gender == "male":
                 qualified = t["maleLevel"] != 0 and t["maleLevel"] <= group_level
@@ -31,7 +37,7 @@ def _calculate_qualifications(trainers: list[dict], groups: list[dict], assign_t
 
             row.append(1 if qualified else 0)
         matrix.append(row)
-    return matrix
+    return matrix, [bool(assigned) for assigned in assigned_to]
 
 
 def _validate_availability_lengths(
@@ -69,7 +75,7 @@ def transform_data(raw_data: dict) -> dict:
 
     Input shape:
     {
-        "groups":    [{"groupID", "name", "level", "gender", "availability_bitmask"}, ...],
+        "groups":    [{"groupID", "name", "level", "gender", "sessions", "availability_bitmask"}, ...],
         "trainers":  [{"trainerID", "groupID", "name", "femaleLevel", "maleLevel", "capacity",
                        "availability_bitmask", "assigned_groups"}, ...],
         "spaces":    [{"spaceName", "location"}, ...],
@@ -86,7 +92,10 @@ def transform_data(raw_data: dict) -> dict:
         },
         "members":  {group_index: [str(trainerID), ...], ...},
         "quals":    [[1/0, ...], ...],          # [trainer_i][group_i]
-        "capacity":          [int, ...],        # [trainer_i]
+        "group_assigned":    [bool, ...],       # [group_i]: the group has an assigned trainer
+        "capacity":          [int, ...],        # [trainer_i]: the most groups they coach
+        "sessions":          [int, ...],        # [group_i]: how many sessions it gets
+        "session_rules":     {"same_day": bool, "same_trainer": bool},
         "availability": {
             "trainers": [[1/0, ...], ...],      # [trainer_i][slot_i]
             "groups":   [[1/0, ...], ...],      # [group_i][slot_i]
@@ -135,11 +144,13 @@ def transform_data(raw_data: dict) -> dict:
         if gid in g_idx and tid:
             members_in_group[g_idx[gid]].append(tid)
 
-    assign_trainers = bool(raw_data.get("assign_trainers", False))
-    quals         = _calculate_qualifications(trainers, groups, assign_trainers)
+    trainer_mode = raw_data.get("trainer_mode", "chosen")
+    quals, group_assigned = _calculate_qualifications(trainers, groups, trainer_mode)
     trainer_avail = [t["availability_bitmask"] for t in trainers]
     group_avail   = [g["availability_bitmask"] for g in groups]
     capacity      = [max(1, int(t.get("capacity", 1))) for t in trainers]
+    sessions      = [max(1, int(g.get("sessions", 1))) for g in groups]
+    session_rules = {"same_day": False, "same_trainer": True, **raw_data.get("session_rules", {})}
 
     # space index -> venue name
     space_venue = {i: c.get("location", "") for i, c in enumerate(spaces)}
@@ -173,9 +184,12 @@ def transform_data(raw_data: dict) -> dict:
         "indices": {"t": t_idx, "g": g_idx, "s": s_idx, "c": c_idx},
         "members":  members_in_group,
         "quals":    quals,
-        "assign_trainers": assign_trainers,
+        "trainer_mode":   trainer_mode,
+        "group_assigned": group_assigned,
         "group_rule_pairs": group_rule_pairs,
         "capacity": capacity,
+        "sessions": sessions,
+        "session_rules": session_rules,
         "availability": {
             "trainers": trainer_avail,
             "groups":   group_avail,

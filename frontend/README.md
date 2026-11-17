@@ -98,17 +98,19 @@ The tabs (Locations, Timeslots, Groups, Trainers, and Group Rules when that sett
 - **Spaces**: a space's identity is "location + name" (`expandLocations` in `lib/types.ts`). Unnamed spaces keep their number ("Club A 3", shown as "Space 3").
 - **Renames carry over** (`carryRenames` in the Data page). Renaming a group updates trainers' Member Of and Training Groups and any group rules. Renaming a space or location updates the timeslots' space ticks.
 
-Two checks block a run until they pass, both in `lib/settings.ts`. `timeslotClashes()` lists timeslots that overlap on the same space, since timeslots may only overlap on different spaces. `spaceNameProblems()` lists space names that are missing (with space-specific timeslots) or used twice at one location.
+Three checks block a run until they pass, all in `lib/settings.ts`. `timeslotClashes()` lists timeslots that overlap on the same space, since timeslots may only overlap on different spaces. `spaceNameProblems()` lists space names that are missing (with space-specific timeslots) or used twice at one location. `levelProblems()` applies while levels are in use: it lists groups with no level entered, and level-based rewards that are on when no two groups are one level apart.
 
 **Columns follow the Scheduler Settings.** Hidden values are kept, not deleted.
 
 - *Gendered Groups* off: Groups have no Gender column, and Trainers have a single **Level** column (stored as the female level).
-- *Assign Trainers to Groups* on: Trainers lose their level columns and gain **Training Groups**, with one dropdown for each unit of capacity. Each dropdown lists only the groups no other trainer trains. Groups lose their **Level** column too, unless a reward that uses levels is on.
+- *Trainers* off: the Trainers tab is hidden, and the schedule views show no trainers.
+- *Choosing Trainers*: with **Automatic (Level-Based)**, Trainers have level columns. With **Manual**, they have **Training Groups** instead, with one dropdown for each unit of capacity. Each dropdown lists only the groups no other trainer trains. Groups lose their **Level** column too, unless *Substitutions* is on. With **Mixed**, Trainers have both, and a trainer's levels are greyed out once every dropdown has a group.
+- *Multiple Sessions* on: Groups gain a **Sessions** column.
 - *Group Rules* on: a **Group Rules** tab appears after Trainers. Each rule picks groups on two sides, "Members Of" and "Can Attend", and whether it is **Required** (off means preferred, scored by the Group Rules reward). A rule works in one direction: the minutes counted are those of the "Can Attend" sessions that members of the first groups would miss. With the setting off, the rules are kept but not sent, and the reward is unavailable.
-- *Name Spaces* on (always on with space-specific timeslots): the Locations tab gains **Space Names**, with one box for each space.
+- *Space Names* on (always on with space-specific timeslots): the Locations tab gains **Space Names**, with one box for each space.
 - *Space-Specific Timeslots* on: the Timeslots tab's **Locations** column becomes **Spaces**, with a checkbox for each space, grouped by location. Spaces are stored by name, and all ticked is stored as "no limit".
 
-`applySettings()` in `lib/settings.ts` produces the data as the solver sees it under the settings: one gender when groups aren't gendered, and level 1 when levels aren't used. The API calls, the score breakdown and the schedule views all use it.
+`applySettings()` in `lib/settings.ts` produces the data as the solver sees it under the settings: one gender when groups aren't gendered, level 1 when levels aren't used, one session for each group when multiple sessions are off, and one placeholder trainer for each group when trainers are off. The API calls, the score breakdown and the schedule views all use it.
 
 ### ID Generation (`lib/api.ts`)
 
@@ -122,9 +124,10 @@ The frontend stores data without IDs to keep the saved file clean. `withIDs()` g
 Each schedule has its own settings (`settings` in the file). The types are in `lib/types.ts`, and the defaults and reward descriptions are in `lib/settings.ts`. The page has:
 
 - **Max Solve Time**: a dropdown of set choices (`SOLVE_TIME_OPTIONS`).
-- **Rewards**: the reward mode (Priority Order or Points), and each reward's switch, points and place in the order. Rewards that need a setting or more data are listed under Unavailable with what they need.
-- **Groups and Trainers**: Gendered Groups, Assign Trainers to Groups, Group Rules.
-- **Locations and Timeslots**: Name Spaces, Space-Specific Timeslots.
+- **Rewards**: the reward mode (Priority Order or Points), and each reward's switch, points and place in the order. Every reward counts something to avoid, so lower is better. Every reward starts on when the corresponding setting is activated. A reward that needs a setting or more data is listed under Unavailable, with a badge for each thing it needs, and isn't used.
+- **Trainers**: Trainers, with the Choosing Trainers dropdown below it. A setting that belongs to a switch shows indented below it while the switch is on (`SubSettings`).
+- **Groups**: Gendered Groups, Substitutions, Group Rules.
+- **Locations, Timeslots and Sessions**: Multiple Sessions (with Same Day and Same Trainer), Space-Specific Timeslots, Space Names.
 - **Delete Schedule**: deletes the schedule's file after asking. The file goes to the Recycle Bin in the Windows app and is deleted for good in Docker.
 
 Settings are saved with **Save** in the header, like everything else. A run sends `reward_config` (`{ REWARD_KEY: points }`, with `0` for rewards that are off or unavailable) and `max_solve_seconds`. Each run keeps a copy of the settings it used, so changing the settings later doesn't affect how that run is scored or verified.
@@ -135,7 +138,7 @@ The page lists anything still missing before a run can start. **Run** then calls
 
 The two reward modes show progress differently:
 
-- **Points**: the score is the plain sum of points. The gap shows how far the score could still be from the best possible.
+- **Points**: the score is the sum of penalty points, and lower is better. The gap shows how far the score could still be above the best possible.
 - **Priority Order** (`hierarchical` in the code): there is no single score or gap. During a run, the stats show which reward is being optimised (stage *n* of *m*).
 
 In both modes the **Score Breakdown** shows how each reward did.
@@ -160,7 +163,7 @@ Ctrl+S always saves the whole file, including in edit mode. Edits that haven't b
 
 ### Score Breakdown
 
-`computeScoreBreakdown()` in `lib/scoreBreakdown.ts` works out how the schedule did on each reward in the browser, mirroring the backend's scoring. `ScoreBreakdownPanel` shows the result: Same Day and wait time for each trainer, No Travel trainer-days, and the adjacent group figures.
+`computeScoreBreakdown()` in `lib/scoreBreakdown.ts` works out how the schedule did on each reward in the browser, mirroring the backend's scoring. `ScoreBreakdownPanel` shows the result: for each reward in use, what it counted, who or what it counted, and its penalty points in Points mode.
 
 ## Notes for Contributors
 

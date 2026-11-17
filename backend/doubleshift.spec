@@ -20,7 +20,7 @@ datas, binaries, hiddenimports = collect_all("ortools")
 hiddenimports += collect_submodules("uvicorn")
 datas += [
     (FRONTEND, "frontend"),
-    (os.path.join(SPECPATH, "examples"), "examples"),  # copied to Documents on first run
+    (os.path.join(ROOT, "examples"), "examples"),  # copied to Documents on first run
     (os.path.join(ROOT, "LICENSE"), "."),
 ]
 

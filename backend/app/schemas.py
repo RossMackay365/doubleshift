@@ -20,6 +20,7 @@ class Group(BaseModel):
     name: str
     level: int
     gender: str  # 'female' | 'male'
+    sessions: int = Field(default=1, ge=1)  # how many sessions the group gets
     availability_bitmask: list[int]
     location_bitmask: list[int] = []
 
@@ -32,7 +33,7 @@ class Trainer(BaseModel):
     maleLevel: int
     capacity: int = 1  # max number of groups this trainer can be assigned to coach
     availability_bitmask: list[int]
-    # Groups this trainer is assigned to coach (groupIDs). Only used when assign_trainers is set.
+    # Groups this trainer is assigned to coach (groupIDs). Not used when trainer_mode is 'chosen'.
     assigned_groups: list[str] = []
 
 
@@ -67,6 +68,19 @@ class GroupRule(BaseModel):
     required: bool = False
 
 
+# Who decides which trainer coaches each group:
+# - 'assigned': each trainer coaches only their assigned_groups.
+# - 'chosen':   the solver chooses, from the trainers whose level qualifies them.
+# - 'mixed':    a group assigned to a trainer is coached by them; the solver chooses for the rest.
+TrainerMode = Literal['assigned', 'mixed', 'chosen']
+
+
+class SessionRules(BaseModel):
+    # How the sessions of a group with more than one sit relative to each other.
+    same_day: bool = False     # two of them can be on the same day
+    same_trainer: bool = True  # one trainer coaches all of them
+
+
 class SolveRequest(BaseModel):
     groups:         list[Group]
     trainers:       list[Trainer]
@@ -75,8 +89,8 @@ class SolveRequest(BaseModel):
     travel_times:   list[TravelTime] = []
     location_names: list[str] = []
     reward_config:  RewardPoints
-    # Trainers coach only their assigned_groups, instead of any group their level qualifies them for.
-    assign_trainers: bool = False
+    trainer_mode: TrainerMode = 'chosen'
+    session_rules: SessionRules = SessionRules()
     group_rules: list[GroupRule] = []
     # 'points': maximise the points-weighted total. 'hierarchical': optimise the rewards in
     # reward_order one at a time, never giving up a higher one for a lower one.
@@ -109,7 +123,8 @@ class VerifyRequest(BaseModel):
     travel_times:   list[TravelTime] = []
     location_names: list[str] = []
     reward_config:  RewardPoints
-    assign_trainers: bool = False
+    trainer_mode: TrainerMode = 'chosen'
+    session_rules: SessionRules = SessionRules()
     group_rules: list[GroupRule] = []
 
 

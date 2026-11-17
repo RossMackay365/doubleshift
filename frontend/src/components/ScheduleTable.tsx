@@ -8,20 +8,25 @@ import { ScheduleEntry, Space, Timeslot, sortDays, toMinutes } from '@/lib/types
 // which Excel and Google Sheets paste into separate cells.
 
 const HEADINGS = ['Group', 'Trainer', 'Day', 'Start Time', 'End Time', 'Location', 'Space'];
+const TRAINER_COLUMN = 1;
+const TIME_HEADINGS = ['Day', 'Start Time', 'End Time'];
 
 interface Props {
   timeslots: Timeslot[];
   spaces: Space[];
   result: ScheduleEntry[];
+  showTrainers: boolean; // off for a schedule without trainers
   toolbar?: React.ReactNode; // shown on the left of the Copy Table button (the view switch)
 }
 
-export default function ScheduleTable({ timeslots, spaces, result, toolbar }: Props) {
+export default function ScheduleTable({ timeslots, spaces, result, showTrainers, toolbar }: Props) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
 
   const spaceByName = new Map(spaces.map(s => [s.spaceName, s]));
   const spaceOrder = new Map(spaces.map((s, i) => [s.spaceName, i]));
   const dayOrder = sortDays([...new Set(timeslots.map(t => t.day))]);
+  const shown = <T,>(row: T[]) => row.filter((_, i) => showTrainers || i !== TRAINER_COLUMN);
+  const headings = shown(HEADINGS);
 
   // Sorted by day, then start time, then location and space (in the order they're entered).
   const rows = result
@@ -31,15 +36,15 @@ export default function ScheduleTable({ timeslots, spaces, result, toolbar }: Pr
       dayOrder.indexOf(a.slot.day) - dayOrder.indexOf(b.slot.day)
       || toMinutes(a.slot.start) - toMinutes(b.slot.start)
       || (spaceOrder.get(a.entry.space) ?? 0) - (spaceOrder.get(b.entry.space) ?? 0))
-    .map(({ entry, slot, space }) => [
+    .map(({ entry, slot, space }) => shown([
       entry.group, entry.trainer, slot.day, slot.start, slot.finish,
       space?.location ?? '', space?.label ?? entry.space,
-    ]);
+    ]));
 
   async function copyTable() {
     // Tabs between cells and new lines between rows; a tab or line break inside a name
     // would split the cell, so those become spaces.
-    const text = [HEADINGS, ...rows]
+    const text = [headings, ...rows]
       .map(row => row.map(cell => cell.replace(/[\t\r\n]+/g, ' ')).join('\t'))
       .join('\n');
     try {
@@ -73,14 +78,14 @@ export default function ScheduleTable({ timeslots, spaces, result, toolbar }: Pr
         <table className="w-full text-left text-sm">
           <thead className="border-b border-gray-200 bg-gray-50 text-gray-600">
             <tr>
-              {HEADINGS.map(h => <th key={h} className="px-4 py-2.5 font-semibold whitespace-nowrap">{h}</th>)}
+              {headings.map(h => <th key={h} className="px-4 py-2.5 font-semibold whitespace-nowrap">{h}</th>)}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 text-gray-800">
             {rows.map((row, i) => (
               <tr key={i} className="hover:bg-gray-50">
                 {row.map((cell, j) => (
-                  <td key={j} className={`px-4 py-2 ${j >= 2 && j <= 4 ? 'whitespace-nowrap tabular-nums' : ''}`}>{cell}</td>
+                  <td key={j} className={`px-4 py-2 ${TIME_HEADINGS.includes(headings[j]) ? 'whitespace-nowrap tabular-nums' : ''}`}>{cell}</td>
                 ))}
               </tr>
             ))}

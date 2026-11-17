@@ -2,7 +2,7 @@
 import { createContext, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { getSchedule, saveSchedule, startSolve, getJobStatus, cancelSolve } from '@/lib/api';
-import { DEFAULT_SETTINGS, withDefaults, withUnavailableOff } from '@/lib/settings';
+import { DEFAULT_SETTINGS, withDefaults } from '@/lib/settings';
 import { JobStatus, ScheduleContents, ScheduleData, ScheduleSettings } from '@/lib/types';
 import ScheduleNotFound from '@/components/ScheduleNotFound';
 import LeaveDialog from '@/components/LeaveDialog';
@@ -76,13 +76,17 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
           setStatus('notFound');
           return;
         }
-        const loadedSettings = withUnavailableOff(withDefaults(schedule.settings), schedule.data);
+        const loadedSettings = withDefaults(schedule.settings);
+        // The last run keeps the settings it used, which may be from an older version too.
+        const lastRun = schedule.last_run?.settings
+          ? { ...schedule.last_run, settings: withDefaults(schedule.last_run.settings) }
+          : schedule.last_run;
         setName(schedule.name);
         setData(schedule.data);
         setSettings(loadedSettings);
-        setLastRun(schedule.last_run);
+        setLastRun(lastRun);
         // Same shape and key order as `contents`, so an untouched schedule isn't "modified".
-        setSavedJson(JSON.stringify({ data: schedule.data, settings: loadedSettings, last_run: schedule.last_run }));
+        setSavedJson(JSON.stringify({ data: schedule.data, settings: loadedSettings, last_run: lastRun }));
         setStatus('ready');
       })
       .catch(e => setLoadError(e instanceof Error ? e.message : String(e)));
@@ -97,18 +101,8 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
     }
   }, [path, contents, contentsJson]);
 
-  // Changing the data or settings can make a reward unavailable (e.g. removing the second
-  // location); it's then switched off, see withUnavailableOff.
-  const updateData = useCallback((next: ScheduleData) => {
-    setData(next);
-    setSettings(current => withUnavailableOff(current, next));
-  }, []);
-  const updateSettings = useCallback(
-    (next: ScheduleSettings) => setSettings(withUnavailableOff(next, data)),
-    [data],
-  );
 
-  // --- Running the solver ---
+  // RUNNING THE SOLVER
   const [activeRun, setActiveRun] = useState<JobStatus | null>(null);
   const [running, setRunning] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -266,7 +260,7 @@ export default function ScheduleProvider({ children }: { children: React.ReactNo
 
   return (
     <ScheduleContext.Provider value={{
-      path, name, data, setData: updateData, settings, setSettings: updateSettings, lastRun, setLastRun, isModified, save, setUnappliedEdits,
+      path, name, data, setData, settings, setSettings, lastRun, setLastRun, isModified, save, setUnappliedEdits,
       activeRun, running, cancelling, startedAt, runError, clearRunError: () => setRunError(null), startRun, cancelRun,
     }}>
       {children}

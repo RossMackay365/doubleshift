@@ -1,5 +1,5 @@
 from ortools.sat.python import cp_model
-from .constraints import apply_constraints, is_penalty, slot_allows_space
+from .constraints import apply_constraints, slot_allows_space
 from .transform import transform_data
 from .diagnostics import diagnose_infeasibility
 from .state import update_job, get_job, register_process, unregister_process
@@ -23,12 +23,19 @@ class SchedulerCallback(cp_model.CpSolverSolutionCallback):
     parent writes it into job state. This keeps the live-schedule behaviour
     while letting the parent kill the child on demand.
     """
-    def __init__(self, x: dict, data: dict, progress_queue, stage: dict | None = None):
+    def __init__(self, x: dict, data: dict, progress_queue, rewards: dict, stage: dict | None = None,
+                 tidy_bound: float | None = None):
         super().__init__()
         self._x = x
         self._data = data
         self._queue = progress_queue
+        self._rewards = rewards
+        self.reward_counts: dict = {}
+        self.chosen: list = []  # the (group, trainer, space, slot) keys of that schedule
         self._stage = stage or {}  # Hierarchical Mode: which reward is being optimised
+        # The tidy-up (see _tidy_spaces) minimises space numbers, not the score, so its score
+        # is worked out from the reward counts, and its gap uses the main search's bound.
+        self._tidy_bound = tidy_bound
         self._solution_count = 0
 
     def on_solution_callback(self):
@@ -36,8 +43,10 @@ class SchedulerCallback(cp_model.CpSolverSolutionCallback):
 
         # Extract the Current Variable Value Assignments
         current_schedule = []
+        self.chosen = []
         for key, var in self._x.items():
             if self.Value(var) == 1:
+                self.chosen.append(key)
                 g_i, t_i, c_i, s_i = key
                 current_schedule.append({
                     "group":    self._data["raw"]["groups"][g_i]["name"],
@@ -46,7 +55,10 @@ class SchedulerCallback(cp_model.CpSolverSolutionCallback):
                     "timeslot": self._data["raw"]["timeslots"][s_i]["id"],
                 })
 
-        objective = self.ObjectiveValue()
+        self.reward_counts = {key: sum(self.Value(v) for v in vars_) for key, vars_ in self._rewards.items()}
+
+        tidying = self._tidy_bound is not None
+        objective = _score(self._data, self.reward_counts) if tidying else self.ObjectiveValue()
         stats = {
             "solutions_found": self._solution_count,
             "current_score":   objective,
@@ -54,14 +66,7 @@ class SchedulerCallback(cp_model.CpSolverSolutionCallback):
             **self._stage,
         }
         try:
-            best_bound   = self.BestObjectiveBound()
-            absolute_gap = best_bound - objective
-            gap_pct      = round((absolute_gap / best_bound) * 100, 2) if best_bound != 0 else 0.0
-            stats.update({
-                "best_bound":   best_bound,
-                "absolute_gap": absolute_gap,
-                "gap_percent":  gap_pct,
-            })
+            stats.update(_gap(objective, self._tidy_bound if tidying else self.BestObjectiveBound()))
         except Exception as e:
             logger.warning("Could not compute gap: %s", e)
 
@@ -127,20 +132,31 @@ def build_and_solve(data: dict, progress_queue):
     if data["reward_mode"] == "hierarchical" and stages:
         return _solve_hierarchical(model, x, data, rewards, stages, progress_queue)
 
-    # Points: maximise the points-weighted total, with penalties subtracted.
+    # Points: minimise the points-weighted total of the penalties.
     points = data["rewards_cfg"]
-    model.Maximize(sum(points[key] * _objective(key, vars_) for key, vars_ in rewards.items()))
+    score = sum(points[key] * sum(vars_) for key, vars_ in rewards.items())
+    model.Minimize(score)
 
-    solver = _new_solver(data["max_solve_seconds"])
-    status = solver.Solve(model, SchedulerCallback(x, data, progress_queue))
+    started = time.monotonic()
+    solver = _new_solver(data["max_solve_seconds"] - _tidy_seconds(data))
+    callback = SchedulerCallback(x, data, progress_queue, rewards)
+    status = solver.Solve(model, callback)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return status, {}
+
+    # The tidy-up never makes the score worse.
+    model.Add(score <= round(_score(data, callback.reward_counts)))
+    best_bound = solver.BestObjectiveBound()
+    reward_counts = _tidy_spaces(model, x, data, rewards, progress_queue, callback.chosen,
+                                 started + data["max_solve_seconds"], tidy_bound=best_bound) or callback.reward_counts
+    final_score = _score(data, reward_counts)
     return status, {
         "optimal":         status == cp_model.OPTIMAL,
-        "elapsed_seconds": round(solver.WallTime(), 2),
+        "elapsed_seconds": round(time.monotonic() - started, 2),
         "stopped_reason":  "optimal" if status == cp_model.OPTIMAL else "time_limit",
-        "reward_counts":   _reward_counts(solver, rewards),
-        **_compute_gap(solver),
+        "reward_counts":   reward_counts,
+        "final_score":     final_score,
+        **_gap(final_score, best_bound),
     }
 
 
@@ -155,48 +171,93 @@ def _solve_hierarchical(model, x, data, rewards, stages, progress_queue):
     before finding a schedule, the previous stage's schedule stands.
     """
     started  = time.monotonic()
-    deadline = started + data["max_solve_seconds"]
-    solver = status = None
+    deadline = started + data["max_solve_seconds"] - _tidy_seconds(data)  # the rest is for the tidy-up
+    status = reward_counts = None
+    chosen, stage = [], {}
     all_optimal = True
 
     for i, key in enumerate(stages):
-        objective = _objective(key, rewards[key])
+        objective = sum(rewards[key])
         model.ClearObjective()
-        model.Maximize(objective)
+        model.Minimize(objective)
 
         stage = {"stage": i + 1, "stage_count": len(stages), "stage_name": key}
         stage_solver = _new_solver(max(0.0, (deadline - time.monotonic()) / (len(stages) - i)))
-        stage_status = stage_solver.Solve(model, SchedulerCallback(x, data, progress_queue, stage))
+        callback = SchedulerCallback(x, data, progress_queue, rewards, stage)
+        stage_status = stage_solver.Solve(model, callback)
 
         if stage_status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            if solver is None:  # first stage: no schedule at all
+            if status is None:  # first stage: no schedule at all
                 return stage_status, {}
             all_optimal = False
             break
 
-        solver, status = stage_solver, stage_status
+        status, reward_counts, chosen = stage_status, callback.reward_counts, callback.chosen
         all_optimal = all_optimal and stage_status == cp_model.OPTIMAL
-        model.Add(objective >= round(stage_solver.ObjectiveValue()))
+        # Lock in the schedule this stage reported (see SchedulerCallback.reward_counts).
+        model.Add(objective <= reward_counts[key])
         model.ClearHints()
         for var in x.values():
             model.AddHint(var, stage_solver.Value(var))
 
+    # Every stage's result is locked in, so the tidy-up can't make any reward worse.
+    reward_counts = _tidy_spaces(model, x, data, rewards, progress_queue, chosen,
+                                 started + data["max_solve_seconds"], stage=stage) or reward_counts
     return status, {
         "optimal":         all_optimal,
         "elapsed_seconds": round(time.monotonic() - started, 2),
         "stopped_reason":  "optimal" if all_optimal else "time_limit",
-        "reward_counts":   _reward_counts(solver, rewards),
+        "reward_counts":   reward_counts,
     }
 
 
-def _objective(key: str, reward_vars: list):
-    """A reward's count to maximise; for a penalty, its count negated (so it's minimised)."""
-    return (-1 if is_penalty(key) else 1) * sum(reward_vars)
+def _score(data: dict, reward_counts: dict) -> int:
+    """The points-mode score of a schedule: each penalty's count times its points."""
+    return sum(data["rewards_cfg"].get(key, 0) * n for key, n in reward_counts.items())
 
 
-def _reward_counts(solver, rewards: dict) -> dict:
-    """How often each reward is achieved (or penalty incurred) in the solver's schedule."""
-    return {key: sum(solver.Value(v) for v in vars_) for key, vars_ in rewards.items()}
+def _tidy_seconds(data: dict) -> float:
+    """Time kept back from Max Solve Time for the tidy-up: a tenth of it, at most 5 seconds."""
+    return min(5.0, data["max_solve_seconds"] / 10)
+
+
+def _tidy_spaces(model, x, data, rewards, progress_queue, chosen, deadline, stage=None, tidy_bound=None):
+    """
+    The tidy-up after the main search: moves sessions into the lowest-numbered free spaces
+    (in the order entered on the Locations tab), so a schedule doesn't use Space 2 while
+    Space 1 sits empty at the same time. Every session keeps its group, trainer, timeslot
+    and location; only the space can change. The caller locks in the score first, so it can't
+    get worse. Returns the tidied schedule's reward counts, or None if it found nothing.
+    """
+    if not chosen:
+        return None
+    space_venue = data.get("space_venue", {})
+    placed = {(g, t, s, space_venue.get(c, "")) for g, t, c, s in chosen}
+    for (g, t, c, s), var in x.items():
+        if (g, t, s, space_venue.get(c, "")) not in placed:
+            model.Add(var == 0)
+
+    # Each space's position within its location: 0 for its first space, 1 for its second.
+    position, seen = {}, {}
+    for c in range(len(data["raw"]["spaces"])):
+        venue = space_venue.get(c, "")
+        position[c] = seen.get(venue, 0)
+        seen[venue] = position[c] + 1
+
+    model.ClearObjective()
+    model.Minimize(sum(position[c] * var for (_, _, c, _), var in x.items()))
+    model.ClearHints()
+    chosen_set = set(chosen)
+    for key, var in x.items():
+        model.AddHint(var, 1 if key in chosen_set else 0)
+
+    solver = _new_solver(max(1.0, deadline - time.monotonic()))
+    callback = SchedulerCallback(x, data, progress_queue, rewards, stage,
+                                 tidy_bound=0 if tidy_bound is None else tidy_bound)
+    status = solver.Solve(model, callback)
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE) or not callback.reward_counts:
+        return None
+    return callback.reward_counts
 
 
 def _new_solver(max_seconds: float):
@@ -206,21 +267,14 @@ def _new_solver(max_seconds: float):
     return solver
 
 
-def _compute_gap(solver) -> dict:
-    """
-    Computes the optimality gap between the best solution found and the
-    theoretical upper bound (points mode only). Only call this when status is FEASIBLE or OPTIMAL.
-    """
-    objective    = solver.ObjectiveValue()
-    best_bound   = solver.BestObjectiveBound()
-    absolute_gap = best_bound - objective
-    gap_pct      = round((absolute_gap / best_bound) * 100, 2) if best_bound != 0 else 0.0
-
+def _gap(objective: float, best_bound: float) -> dict:
+    """How far the score (penalty points, lower is better) could still be above the best
+    possible: best_bound is the lowest score any schedule could have."""
+    absolute_gap = objective - best_bound
     return {
-        "final_score":  objective,
         "best_bound":   best_bound,
         "absolute_gap": absolute_gap,
-        "gap_percent":  gap_pct,
+        "gap_percent":  round((absolute_gap / objective) * 100, 2) if objective != 0 else 0.0,
     }
 
 

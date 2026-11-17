@@ -1,65 +1,66 @@
-import { RewardSetting, ScheduleData, ScheduleSettings, expandLocations, slotRunsOn, slotsOverlap } from './types';
+import { RewardSetting, ScheduleData, ScheduleSettings, TrainerMode, expandLocations, slotRunsOn, slotsOverlap } from './types';
 
+// Every reward counts something you'd rather avoid (a penalty), and the scheduler minimises it.
+// A reward's label says what it aims for. Every reward starts switched on; one that needs a setting or data the schedule doesn't have is unavailable
+// (see unavailableReasons) and isn't used, but keeps its switch for when it becomes available.
 export const REWARDS = [
   {
-    key: 'REWARD_SAME_DAY',
-    label: 'Same Day',
-    description: "Gives a reward for each trainer whose sessions are all on one day. This counts the sessions they train and their own group's session.",
+    key: 'PENALTY_EXTRA_DAYS',
+    label: 'Minimise Days',
+    description: "Counts each extra day a trainer has sessions on, after their first. This includes the sessions they train and their own group's sessions.",
     defaultPoints: 10_000,
-    onByDefault: true,
+    usesTrainers: true,
   },
   {
-    key: 'REWARD_NO_TRAVEL',
-    label: 'No Travel',
-    description: 'Gives a reward for each day a trainer spends at one location. Only days when the trainer has two or more sessions count.',
+    key: 'PENALTY_TRAVEL_DAYS',
+    label: 'Minimise Travel',
+    description: "Counts each day a trainer has sessions at more than one location. This includes the sessions they train and their own group's sessions.",
     defaultPoints: 100,
+    usesTrainers: true,
     usesLocations: true,
-    onByDefault: true,
   },
   {
     key: 'PENALTY_WAIT_TIME',
     label: 'Minimise Wait Time',
-    description: "Applies a penalty for each minute a trainer waits between sessions on the same day. This counts the sessions they train and their own group's session.",
+    description: "Counts each minute a trainer waits between sessions on the same day. This includes the sessions they train and their own group's sessions.",
     defaultPoints: 100,
-    isPenalty: true,
     perMinute: true,
-    onByDefault: true,
+    usesTrainers: true,
   },
   {
     key: 'PENALTY_GROUP_RULES',
     label: 'Group Rules',
-    description: "Applies a penalty for each minute a group's members would miss of a session they want to attend. This covers your preferred group rules and includes travel time.",
+    description: "Counts each minute a group's members would miss of a session they want to attend. This covers your preferred group rules and includes travel time.",
     defaultPoints: 100,
-    isPenalty: true,
     perMinute: true,
     usesGroupRules: true,
   },
   {
     key: 'PENALTY_ADJ_BLOCKED',
-    label: 'Available to Sub in Higher Group',
-    description: "Applies a penalty each time a trainer can't attend the session of a group one level above their own, because they are training another group at that time.",
+    label: 'Trainer Available to Sub in Higher Group',
+    description: "Counts each time a trainer can't attend the session of the group one level above their own, because they are training another group at that time.",
     defaultPoints: 10_000,
-    isPenalty: true,
-    usesLevels: true,
+    usesTrainers: true,
+    usesSubstitutions: true,
   },
   {
-    key: 'REWARD_ADJ_GROUP_B2B',
+    key: 'PENALTY_ADJ_NOT_B2B',
     label: 'Adjacent Groups Back-to-Back',
-    description: 'Gives a reward each time two groups one level apart train straight after each other at the same location.',
+    description: 'Counts each pair of groups one level apart that never train straight after each other at the same location.',
     defaultPoints: 5_000,
-    usesLevels: true,
+    usesSubstitutions: true,
   },
   {
-    key: 'REWARD_ADJ_GROUP_SAME_DAY',
+    key: 'PENALTY_ADJ_NOT_SAME_DAY',
     label: 'Adjacent Groups Same Day',
-    description: "Gives a reward each time two groups one level apart train on the same day at the same location. Groups that train at the same time don't count.",
+    description: "Counts each pair of groups one level apart that never train on the same day at the same location. Sessions at the same time don't count.",
     defaultPoints: 1_000,
-    usesLevels: true,
+    usesSubstitutions: true,
   },
   {
-    key: 'REWARD_SAME_GENDER_B2B',
+    key: 'PENALTY_GENDER_CHANGES',
     label: 'Same Gender Back-to-Back',
-    description: 'Gives a reward each time two sessions for the same gender follow each other in the same space. This is useful when you want to avoid equipment or setup changes between sessions.',
+    description: 'Counts each time a session follows one for the other gender in the same space. This is useful when you want to avoid equipment or setup changes between sessions.',
     defaultPoints: 1,
     usesGender: true,
   },
@@ -81,43 +82,74 @@ export const SOLVE_TIME_OPTIONS = [
 
 export const DEFAULT_SETTINGS: ScheduleSettings = {
   maxSolveSeconds: 120,
-  assignTrainers: false,
+  trainers: true,
+  substitutions: false,
+  trainerMode: 'chosen',
+  multipleSessions: false,
+  sessionsSameDay: false,
+  sessionsSameTrainer: true,
   genderedTeams: false,
   spaceTimeslots: false,
   nameSpaces: false,
   groupRules: false,
   rewardMode: 'hierarchical',
-  rewards: REWARDS.map(r => ({ key: r.key, enabled: !!r.onByDefault, points: r.defaultPoints })),
+  rewards: REWARDS.map(r => ({ key: r.key, enabled: true, points: r.defaultPoints })),
 };
 
+export const TRAINER_MODES: { value: TrainerMode; label: string }[] = [
+  { value: 'assigned', label: 'Manual' },
+  { value: 'mixed', label: 'Mixed' },
+  { value: 'chosen', label: 'Automatic (Level-Based)' },
+];
+
 // Complete Any Missing Settings with Defaults
-export function withDefaults(saved: Partial<ScheduleSettings> | null | undefined): ScheduleSettings {
-  const savedRewards = (saved?.rewards ?? []).filter(r => REWARDS.some(def => def.key === r.key));
+// Rewards that were replaced by a penalty. A saved one keeps its switch, points and place.
+const REPLACED_REWARDS: Record<string, string> = {
+  REWARD_SAME_DAY: 'PENALTY_EXTRA_DAYS',                // Same Day -> Minimise Days
+  REWARD_NO_TRAVEL: 'PENALTY_TRAVEL_DAYS',              // No Travel -> Minimise Travel
+  REWARD_SAME_GENDER_B2B: 'PENALTY_GENDER_CHANGES',     // counted gender repeats, now changes
+  REWARD_ADJ_GROUP_B2B: 'PENALTY_ADJ_NOT_B2B',          // counted times met, now pairs that never meet
+  REWARD_ADJ_GROUP_SAME_DAY: 'PENALTY_ADJ_NOT_SAME_DAY',
+};
+
+type SavedSettings = Partial<ScheduleSettings> & { assignTrainers?: boolean };
+
+export function withDefaults(savedSettings: SavedSettings | null | undefined): ScheduleSettings {
+  // Schedules saved before trainer modes had an Assign Trainers to Groups switch instead.
+  const { assignTrainers, ...saved } = savedSettings ?? {};
+  const oldTrainerMode = assignTrainers ? { trainerMode: 'assigned' as const } : {};
+  const savedRewards = (saved.rewards ?? [])
+    .map(r => ({ ...r, key: REPLACED_REWARDS[r.key] ?? r.key }))
+    .filter(r => REWARDS.some(def => def.key === r.key));
   const missing = DEFAULT_SETTINGS.rewards.filter(def => !savedRewards.some(r => r.key === def.key));
-  const rewardMode = saved?.rewardMode === 'points' || saved?.rewardMode === 'hierarchical'
+  const rewardMode = saved.rewardMode === 'points' || saved.rewardMode === 'hierarchical'
     ? saved.rewardMode
     : DEFAULT_SETTINGS.rewardMode;
-  return { ...DEFAULT_SETTINGS, ...saved, rewardMode, rewards: [...savedRewards, ...missing] };
+  // Schedules saved before the Substitutions setting keep any substitution reward they had on.
+  const oldSubstitutions = savedSettings && saved.substitutions === undefined
+    ? { substitutions: savedRewards.some(r => r.enabled && rewardDef(r.key)?.usesSubstitutions) }
+    : {};
+  return { ...DEFAULT_SETTINGS, ...oldTrainerMode, ...oldSubstitutions, ...saved, rewardMode, rewards: [...savedRewards, ...missing] };
 }
 
-// Provide Reason for Unavailable Reward
-export function unavailableReason(settings: ScheduleSettings, data: ScheduleData | null, reward: RewardSetting): string | null {
-  const def = REWARDS.find(r => r.key === reward.key);
-  if (def?.usesGender && !settings.genderedTeams) return 'Needs Gendered Groups';
-  if (def?.usesLocations && (data?.locations.length ?? 0) < 2) return 'Needs two or more locations';
-  if (def?.usesGroupRules && !settings.groupRules) return 'Needs Group Rules';
-  return null;
+export function rewardDef(key: string) {
+  return REWARDS.find(r => r.key === key);
 }
 
-// Ensures Rewards That Become Available Default to Off
-export function withUnavailableOff(settings: ScheduleSettings, data: ScheduleData | null): ScheduleSettings {
-  const switchOff = (r: RewardSetting) => r.enabled && unavailableReason(settings, data, r) !== null;
-  if (!settings.rewards.some(switchOff)) return settings;
-  return { ...settings, rewards: settings.rewards.map(r => (switchOff(r) ? { ...r, enabled: false } : r)) };
+// What a reward needs that the schedule doesn't have (empty when it's available).
+export function unavailableReasons(settings: ScheduleSettings, data: ScheduleData | null, reward: RewardSetting): string[] {
+  const def = rewardDef(reward.key);
+  return [
+    def?.usesTrainers && !settings.trainers && 'Needs Trainers',
+    def?.usesSubstitutions && !settings.substitutions && 'Needs Substitutions',
+    def?.usesGender && !settings.genderedTeams && 'Needs Gendered Groups',
+    def?.usesLocations && (data?.locations.length ?? 0) < 2 && 'Needs two or more locations',
+    def?.usesGroupRules && !settings.groupRules && 'Needs Group Rules',
+  ].filter((reason): reason is string => !!reason);
 }
 
 export function isRewardActive(settings: ScheduleSettings, data: ScheduleData | null, reward: RewardSetting): boolean {
-  return reward.enabled && unavailableReason(settings, data, reward) === null;
+  return reward.enabled && unavailableReasons(settings, data, reward).length === 0;
 }
 
 export function rewardPoints(settings: ScheduleSettings, data: ScheduleData | null, key: string): number {
@@ -133,9 +165,13 @@ export function rewardsPayload(settings: ScheduleSettings, data: ScheduleData): 
   return Object.fromEntries(settings.rewards.map(r => [r.key, rewardPoints(settings, data, r.key)]));
 }
 
+export function solverTrainerMode(settings: ScheduleSettings): TrainerMode {
+  return settings.trainers ? settings.trainerMode : 'assigned';
+}
+
 export function levelsInUse(settings: ScheduleSettings, data: ScheduleData | null): boolean {
-  return !settings.assignTrainers || settings.rewards.some(
-    r => REWARDS.find(def => def.key === r.key)?.usesLevels && isRewardActive(settings, data, r),
+  return solverTrainerMode(settings) !== 'assigned' || settings.rewards.some(
+    r => rewardDef(r.key)?.usesSubstitutions && isRewardActive(settings, data, r),
   );
 }
 
@@ -144,6 +180,10 @@ export function levelsInUse(settings: ScheduleSettings, data: ScheduleData | nul
 // - Groups not gendered: every group is treated as female and trainers use only their
 //   female level (the single "Level" column).
 // - Levels not in use: every group is level 1.
+// - No trainers: each group gets a placeholder trainer of its own, named after it, who is
+//   always available. One shared placeholder wouldn't do, as a trainer is only ever in one
+//   place at a time. The pages hide these trainers.
+// - Multiple sessions off: every group has one session.
 // - Timeslots are limited by space (space-specific timeslots) or by location, not both.
 // - Spaces not named: space names are ignored, so spaces are numbered.
 export function applySettings(data: ScheduleData, settings: ScheduleSettings): ScheduleData {
@@ -158,9 +198,18 @@ export function applySettings(data: ScheduleData, settings: ScheduleSettings): S
     groups: data.groups.map(g => ({
       ...g,
       gender: settings.genderedTeams ? g.gender : 'female',
-      level: useLevels ? g.level : 1,
+      level: useLevels ? g.level ?? 1 : 1,
+      sessions: settings.multipleSessions ? Math.max(1, g.sessions ?? 1) : 1,
     })),
-    trainers: data.trainers.map(t => ({
+    trainers: !settings.trainers ? data.groups.map(g => ({
+      name: g.name,
+      groupID: '',
+      trainingGroups: [g.name],
+      femaleLevel: 1,
+      maleLevel: 1,
+      capacity: 1,
+      availability_bitmask: data.timeslots.map(() => 1),
+    })) : data.trainers.map(t => ({
       ...t,
       // A trainer with no level saved counts as level 1.
       femaleLevel: t.femaleLevel ?? 1,
@@ -171,6 +220,27 @@ export function applySettings(data: ScheduleData, settings: ScheduleSettings): S
 
 export function spacesNamed(settings: ScheduleSettings): boolean {
   return settings.nameSpaces || settings.spaceTimeslots;
+}
+
+// What's wrong with the groups' levels, while levels are in use: any that are missing,
+// and rewards that need two groups one level apart when there are none.
+export function levelProblems(data: ScheduleData, settings: ScheduleSettings): string[] {
+  if (!levelsInUse(settings, data)) return [];
+  const missing = data.groups.filter(g => g.level === undefined).map(g => g.name);
+  if (missing.length > 0) return [`Enter a level for ${missing.join(', ')} on the Groups tab.`];
+
+  const levelRewards = rankedRewards(settings, data)
+    .filter(r => rewardDef(r.key)?.usesSubstitutions)
+    .map(r => rewardLabel(r.key));
+  if (levelRewards.length === 0) return [];
+  const { groups } = applySettings(data, settings);
+  const anyOneApart = groups.some(a => groups.some(b => a.gender === b.gender && (a.level ?? 1) - (b.level ?? 1) === 1));
+  if (anyOneApart) return [];
+  const one = levelRewards.length === 1;
+  return [
+    `${new Intl.ListFormat('en-GB').format(levelRewards)} ${one ? 'needs' : 'need'} two groups one level apart${settings.genderedTeams ? ' with the same gender' : ''}. `
+    + `Change your groups' levels on the Groups tab, or switch off ${one ? 'this reward' : 'these rewards'} or Substitutions in Scheduler Settings.`,
+  ];
 }
 
 export function spaceNameProblems(data: ScheduleData, settings: ScheduleSettings): string[] {

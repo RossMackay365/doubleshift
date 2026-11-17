@@ -1,6 +1,5 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { BookOpen, FilePlus, FolderOpen, Upload, X } from 'lucide-react';
 import Guide, { SOURCE_URL } from '@/components/Guide';
@@ -10,7 +9,6 @@ import art from './home-art.png';
 import { ScheduleSummary } from '@/lib/types';
 
 export default function Home() {
-  const router = useRouter();
   const [recent, setRecent] = useState<ScheduleSummary[]>([]);
   const [dialog, setDialog] = useState<'create' | 'open' | null>(null);
   const [folder, setFolder] = useState('');
@@ -27,7 +25,7 @@ export default function Home() {
   }, []);
 
   function openSchedule(path: string) {
-    router.push(`/data?file=${encodeURIComponent(path)}`);
+    window.location.assign(`/data/?file=${encodeURIComponent(path)}`);
   }
 
   async function showOpenDialog() {

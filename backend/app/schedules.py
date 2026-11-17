@@ -20,7 +20,8 @@ RECENT_PATH = os.path.join(DATA_DIR, "recent.json")
 EXTENSION = ".doubleshift"
 FILE_VERSION = 1
 CONTENT_FIELDS = ("data", "settings", "last_run")
-RECENT_COUNT = 3
+RECENT_COUNT = 3   # shown on the home page
+RECENT_KEPT = 10   # remembered, so moved or deleted ones can be skipped and three still show
 INVALID_NAME_CHARS = '\\/:*?"<>|'
 
 
@@ -30,16 +31,16 @@ def init():
     _add_examples()
 
 
-# The example schedules (backend/examples) are copied into the schedules folder the first
+# The example schedules (examples/ at the top of the repo) are copied into the schedules folder the first
 # time the app runs, and listed under Recently Opened, so a new user has something to open
 # straight away. An install can't write to Documents, so the app does it. A file the user
 # already has is never replaced. The marker lives in AppData, so a reinstall adds any
 # deleted examples back.
 EXAMPLES_DIR = (
     os.path.join(sys._MEIPASS, "examples") if getattr(sys, "frozen", False)
-    else os.path.join(os.path.dirname(__file__), "..", "examples")
+    else os.path.join(os.path.dirname(__file__), "..", "..", "examples")  # Docker puts them at /examples
 )
-EXAMPLES = ("Simple Example", "Complex Example")
+EXAMPLES = ("Simple Example", "Intermediate Example", "Complex Example")
 EXAMPLES_MARKER = os.path.join(DATA_DIR, "examples-added")
 
 
@@ -95,10 +96,22 @@ def list_schedules():
     return sorted((_summary(p) for p in paths), key=lambda s: s["modified_at"], reverse=True)
 
 
+def _same_contents(path, contents):
+    """Whether the schedule file at path holds exactly these contents."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return validate_contents(json.load(f)) == contents
+    except (OSError, ValueError):
+        return False
+
+
 def create_schedule(name, contents=None, rename_if_taken=False):
     """Create <name>.doubleshift in the schedules folder and return its summary.
 
     If the name is taken, either raise FileExistsError or (for imports) pick "name (2)" etc.
+    An import that matches one of those files exactly returns that file instead of a copy:
+    a browser can't open a file where it is, so picking one already in the schedules folder
+    uploads it, and it should open the original.
     """
     name = name.strip()
     if not name:
@@ -111,6 +124,8 @@ def create_schedule(name, contents=None, rename_if_taken=False):
     while os.path.exists(path):
         if not rename_if_taken:
             raise FileExistsError(f'You already have a schedule named "{name}". Please choose another name.')
+        if contents is not None and _same_contents(path, contents):
+            return _summary(path)
         path = os.path.join(SCHEDULES_DIR, f"{name} ({copy}){EXTENSION}")
         copy += 1
 
@@ -156,8 +171,7 @@ def delete_schedule(path):
     _remove_recent(path)
 
 
-# --- Recently opened ---
-
+### Recently Opened ###
 def _load_recent():
     try:
         with open(RECENT_PATH, encoding="utf-8") as f:
@@ -171,7 +185,7 @@ def _add_recent(path):
     key = os.path.normcase(path)
     recent = [path] + [p for p in _load_recent() if os.path.normcase(p) != key]
     with open(RECENT_PATH, "w", encoding="utf-8") as f:
-        json.dump(recent[:RECENT_COUNT], f, indent=2)
+        json.dump(recent[:RECENT_KEPT], f, indent=2)
 
 
 def _remove_recent(path):
@@ -182,5 +196,5 @@ def _remove_recent(path):
 
 
 def recent_schedules():
-    """Recently opened schedules, skipping any that have since been moved or deleted."""
-    return [_summary(p) for p in _load_recent() if os.path.isfile(p)]
+    """The most recently opened schedules, skipping any that have since been moved or deleted."""
+    return [_summary(p) for p in _load_recent() if os.path.isfile(p)][:RECENT_COUNT]

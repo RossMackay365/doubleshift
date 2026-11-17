@@ -44,7 +44,8 @@ async def solve(request: SolveRequest, background_tasks: BackgroundTasks):
         "timeslots":      [s.model_dump() for s in request.timeslots],
         "travel_times":   [tt.model_dump() for tt in request.travel_times],
         "location_names": request.location_names,
-        "assign_trainers": request.assign_trainers,
+        "trainer_mode":   request.trainer_mode,
+        "session_rules":  request.session_rules.model_dump(),
         "group_rules":    [r.model_dump() for r in request.group_rules],
         "rewards_cfg":    request.reward_config,
         "max_solve_seconds": request.max_solve_seconds,
@@ -94,7 +95,8 @@ async def verify(request: VerifyRequest):
         "timeslots":      [s.model_dump() for s in request.timeslots],
         "travel_times":   [tt.model_dump() for tt in request.travel_times],
         "location_names": request.location_names,
-        "assign_trainers": request.assign_trainers,
+        "trainer_mode":   request.trainer_mode,
+        "session_rules":  request.session_rules.model_dump(),
         "group_rules":    [r.model_dump() for r in request.group_rules],
     }
 

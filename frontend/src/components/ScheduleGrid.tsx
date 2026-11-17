@@ -27,13 +27,14 @@ interface Props {
   // Edit mode
   editMode?: boolean;
   editableSchedule?: ScheduleEntry[];
-  trainers?: Trainer[];
+  trainers?: Trainer[];          // left out for a schedule without trainers: sessions show no trainer
+  oneTrainerPerGroup?: boolean;  // changing a session's trainer changes it for all of its group's sessions
   onScheduleChange?: (next: ScheduleEntry[]) => void;
 }
 
 export default function ScheduleGrid({
   timeslots, spaces, result, groups, inProgress, gapPercent,
-  editMode, editableSchedule, trainers, onScheduleChange,
+  editMode, editableSchedule, trainers, oneTrainerPerGroup, onScheduleChange,
 }: Props) {
   const displayed = editMode && editableSchedule ? editableSchedule : result;
 
@@ -89,8 +90,11 @@ export default function ScheduleGrid({
 
   function handleTrainerChange(timeslot: number, space: string, newTrainer: string) {
     if (!editableSchedule || !onScheduleChange) return;
+    const group = lookup.get(timeslot)?.get(space)?.group;
     onScheduleChange(editableSchedule.map(e =>
-      e.timeslot === timeslot && e.space === space ? { ...e, trainer: newTrainer } : e
+      (e.timeslot === timeslot && e.space === space) || (oneTrainerPerGroup && e.group === group)
+        ? { ...e, trainer: newTrainer }
+        : e
     ));
   }
 
@@ -121,7 +125,7 @@ export default function ScheduleGrid({
   }
 
   // A scheduled session (shared by both views): group, its times in the calendar, and the
-  // trainer (a dropdown in edit mode). Draggable in edit mode.
+  // trainer if there are trainers (a dropdown in edit mode). Draggable in edit mode.
   function sessionBlock(entry: ScheduleEntry, idx: number, spaceName: string, times?: string) {
     return (
       <div
@@ -134,7 +138,7 @@ export default function ScheduleGrid({
       >
         <div className="truncate text-sm font-medium leading-tight">{entry.group}</div>
         {times && <div className="text-xs tabular-nums opacity-60">{times}</div>}
-        {editMode && trainers ? (
+        {trainers && (editMode ? (
           <select
             className="mt-0.5 w-full cursor-pointer rounded border-0 bg-transparent text-sm opacity-80 focus:outline-none focus:ring-1 focus:ring-current"
             value={entry.trainer}
@@ -148,7 +152,7 @@ export default function ScheduleGrid({
           </select>
         ) : (
           <div className="truncate text-sm opacity-70">{entry.trainer}</div>
-        )}
+        ))}
       </div>
     );
   }

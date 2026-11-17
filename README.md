@@ -8,7 +8,7 @@ DoubleShift builds a training schedule for a sports association, club or school.
 2. **Run the scheduler.** You see the best schedule so far while it works.
 3. **Make it yours.** Drag sessions, swap trainers, and verify your changes before you keep them.
 
-New to the app? Open **Simple Example** or **Complex Example** under Recently Opened on the home page. Both are already filled in. Or choose **Read the Guide** for a walkthrough.
+New to the app? Open **Simple Example**, **Intermediate Example** or **Complex Example** under Recently Opened on the home page. Each is already filled in, and each shows off more of the app than the one before. Or choose **Read the Guide** for a walkthrough.
 
 Each schedule is saved as one `.doubleshift` file, holding its data, its settings and the last run. You can back it up or share it like any document.
 
@@ -52,23 +52,25 @@ When it finishes, run `dist\DoubleShift\DoubleShift.exe`. See the [packaging REA
 
 ## Rewards
 
-Every schedule follows your data: nobody is in two places at once, and everyone is available. There are usually many schedules like that. Rewards tell the scheduler which of them you prefer. You can switch each reward on or off for each schedule in Scheduler Settings.
+Every schedule follows your data: nobody is in two places at once, and everyone is available. There are usually many schedules like that. Rewards tell the scheduler which of them you prefer. Each reward counts something you'd rather avoid, such as an extra day for a trainer, and the scheduler keeps those counts as low as it can. You can switch each reward on or off for each schedule in Scheduler Settings. Every reward starts on, and is used once the setting or data it needs is there.
 
 Rewards work in one of two modes:
 
 - **Priority Order** (the default): the rewards are ranked. The scheduler works through them from the top and never gives up a higher reward to improve a lower one.
-- **Points**: each reward has points, and the schedule with the most points wins. Penalties take points away.
+- **Points**: each reward has points, which are added to the score every time something it counts happens. The schedule with the lowest score wins.
 
-| Reward | Default points | What it does |
+| Reward | Default points | What it counts |
 |---|---|---|
-| Same Day | 10,000 | Gives a reward for each trainer whose sessions are all on one day. This counts the sessions they train and their own group's session |
-| No Travel | 100 | Gives a reward for each day a trainer spends at one location, on days when they have two or more sessions. Needs two or more locations |
-| Minimise Wait Time (penalty) | 100 per minute | Applies a penalty for each minute a trainer waits between sessions on the same day |
-| Group Rules (penalty) | 100 per minute | Applies a penalty for each minute a group's members would miss of a session they want to attend. This covers preferred group rules only. Needs the *Group Rules* setting |
-| Available to Sub in Higher Group (penalty) | 10,000 | Applies a penalty each time a trainer can't attend the session of a group one level above their own, because they are training another group at that time |
-| Adjacent Groups Back-to-Back | 5,000 | Gives a reward each time two groups one level apart train straight after each other at the same location |
-| Adjacent Groups Same Day | 1,000 | Gives a reward each time two groups one level apart train on the same day at the same location, at different times |
-| Same Gender Back-to-Back | 1 | Gives a reward each time two sessions for the same gender follow each other in the same space. This is useful when you want to avoid equipment or setup changes. Needs the *Gendered Groups* setting |
+| Minimise Days | 10,000 per day | Each extra day a trainer has sessions on, after their first. This includes the sessions they train and their own group's sessions |
+| Minimise Travel | 100 per day | Each day a trainer has sessions at more than one location. This includes the sessions they train and their own group's sessions. Needs two or more locations |
+| Minimise Wait Time | 100 per minute | Each minute a trainer waits between sessions on the same day |
+| Group Rules | 100 per minute | Each minute a group's members would miss of a session they want to attend. This covers preferred group rules only. Needs the *Group Rules* setting |
+| Trainer Available to Sub in Higher Group | 10,000 | Each time a trainer can't attend the session of the group one level above their own, because they are training another group at that time. Needs the *Substitutions* setting |
+| Adjacent Groups Back-to-Back | 5,000 | Each pair of groups one level apart that never train straight after each other at the same location. Needs the *Substitutions* setting |
+| Adjacent Groups Same Day | 1,000 | Each pair of groups one level apart that never train on the same day at the same location, at different times. Needs the *Substitutions* setting |
+| Same Gender Back-to-Back | 1 | Each time a session follows one for the other gender in the same space. This is useful when you want to avoid equipment or setup changes. Needs the *Gendered Groups* setting |
+
+Minimise Days, Minimise Travel, Minimise Wait Time and Trainer Available to Sub in Higher Group need the *Trainers* setting.
 
 ## Key Concepts
 
@@ -78,16 +80,22 @@ A **location** is a place where sessions happen. Each location has one or more *
 
 ### Timeslots
 
-A **timeslot** is a day and a time when sessions can happen, such as Monday 18:00 to 19:30. Each group gets one session in one timeslot.
+A **timeslot** is a day and a time when sessions can happen, such as Monday 18:00 to 19:30. Each session takes one timeslot.
 
 ### Groups and Trainers
 
-- **Group**: a set of people who train together. Each group gets exactly one session.
+- **Group**: a set of people who train together. Each group gets one session, or more with the *Multiple Sessions* setting.
 - **Trainer**: leads a group's session. A trainer's **capacity** is the most groups they can train.
 - **Level**: decides which trainers can train which groups. Level 1 is the most advanced, and a trainer can train any group at their own level or a less advanced one. Level 0 means the trainer does not train.
 - **Member**: a trainer can also be a member of a group. They never train their own group, and they are never scheduled to train while their own group has its session.
 
-Two settings change this for each schedule. With *Gendered Groups* on, each group is female or male and trainers have a level for each. With *Assign Trainers to Groups* on, you choose each trainer's Training Groups yourself, and the scheduler only picks times and spaces.
+A few settings change this for each schedule:
+
+- *Gendered Groups*: each group is female or male, and trainers have a level for each.
+- *Trainers*: switch it off to place your groups without any trainers.
+- *Substitutions*: switches on the three rewards that help people fill in for the group one level above their own. Every group then needs a level.
+- *Choosing Trainers*: with **Manual**, you choose each trainer's Training Groups yourself, and the scheduler only picks times and spaces. With **Automatic (Level-Based)**, the scheduler picks every trainer by level. With **Mixed**, you choose the trainers for some groups and the scheduler picks the rest.
+- *Multiple Sessions*: each group has a Sessions number, so a group can train more than once. You choose whether a group's sessions can share a day, and whether one trainer takes them all.
 
 ### More Than One Location
 
@@ -96,7 +104,7 @@ If you have more than one location, you can:
 - Set the travel time between locations. The scheduler always gives trainers enough time to travel.
 - Limit groups and timeslots to certain locations.
 - Switch on *Space-Specific Timeslots* to choose the exact spaces each timeslot runs in, so spaces at one location can have different times.
-- Switch on *Name Spaces* to give each space its own name. Two spaces at one location need different names. This is always on with space-specific timeslots.
+- Switch on *Space Names* to give each space its own name. Two spaces at one location need different names. This is always on with space-specific timeslots.
 
 ### Group Rules
 
@@ -114,6 +122,7 @@ The Windows app keeps your `.doubleshift` files in `Documents\DoubleShift`. Dock
 doubleshift/
 ├── backend/            # FastAPI and OR-Tools: the scheduler and the schedule checks
 │   └── desktop.py      # The Windows app: the backend plus a window
+├── examples/           # The example schedules, copied to the schedules folder on first run
 ├── frontend/           # Next.js: data entry, schedule calendar, editing, guide
 ├── packaging/          # MSIX manifest, logos, third party notices script
 ├── build-msix.ps1      # Builds the Windows app and its MSIX package

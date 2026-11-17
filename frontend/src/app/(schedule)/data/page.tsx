@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Trash2 } from 'lucide-react';
 import EditableTable, { Column } from '@/components/EditableTable';
 import { useSchedule } from '@/components/ScheduleProvider';
-import { spacesNamed, levelsInUse, timeslotClashes } from '@/lib/settings';
+import { spacesNamed, levelsInUse, solverTrainerMode, timeslotClashes } from '@/lib/settings';
 import { Space, Location, ScheduleData, TravelTime, expandLocations, sortDays, toMinutes } from '@/lib/types';
 
 type Tab = 'locations' | 'timeslots' | 'groups' | 'trainers' | 'groupRules';
@@ -15,7 +15,7 @@ const TABS: { id: Tab; label: string; intro: string }[] = [
   },
   {
     id: 'timeslots', label: 'Timeslots',
-    intro: 'The days and times when sessions can take place. Each group gets one session in one of these timeslots.',
+    intro: 'The days and times when sessions can take place. Each session uses one timeslot.',
   },
   {
     id: 'groups', label: 'Groups',
@@ -44,10 +44,11 @@ const BASE_COLUMNS: Record<Tab, Column[]> = {
   groups: [
     { key: 'name',   header: 'Name',   placeholder: 'Beginners', width: '200px' },
     {
-      key: 'level', header: 'Level', type: 'number', placeholder: '1', width: '100px',
-      hint: "How advanced the group is. 1 is the most advanced. A trainer can train a group at their own level or a less advanced one.",
+      key: 'level', header: 'Level', type: 'number', width: '100px',
+      hint: 'How advanced the group is. 1 is the most advanced.',
     },
     { key: 'gender', header: 'Gender', type: 'select', options: ['female', 'male'], width: '120px' },
+    { key: 'sessions', header: 'Sessions', type: 'number', placeholder: '1', width: '120px', hint: 'How many sessions this group gets.' },
   ],
   trainers: [
     { key: 'name',       header: 'Name',         placeholder: 'Sam Taylor', width: '200px' },
@@ -57,7 +58,7 @@ const BASE_COLUMNS: Record<Tab, Column[]> = {
 };
 
 // Trainer level columns: one per gender, or a single Level (stored as the female
-// level) when groups aren't gendered. Hidden when trainers are assigned to groups.
+// level) when groups aren't gendered. Hidden when you assign every trainer yourself.
 const LEVEL_HINT = 'The most advanced group this trainer can train. With level 2 they can train groups at level 2, 3, 4 and so on, but not level 1.';
 const GENDERED_LEVEL_COLUMNS: Column[] = [
   { key: 'femaleLevel', header: 'Female Level', type: 'number', placeholder: '1', width: '150px', hint: `${LEVEL_HINT} Enter 0 if they only train male groups.` },
@@ -116,8 +117,9 @@ function dataToRows(data: ScheduleData): RowMap {
       spaces: JSON.stringify(t.spaces ?? []),
     })),
     groups: data.groups.map(g => ({
-      name: g.name, level: String(g.level),
+      name: g.name, level: g.level === undefined ? '' : String(g.level),
       gender: toGender(g.gender),
+      sessions: String(g.sessions ?? 1),
       availability_bitmask: g.availability_bitmask.join(','),
       location_bitmask: g.location_bitmask?.join(',') ?? '',
     })),
@@ -196,8 +198,9 @@ function rowsToData(rows: RowMap): Omit<ScheduleData, 'travelTimes'> {
       spaces: parseList(r.spaces).filter(name => spaceNames.has(name)),
     })),
     groups: rows.groups.filter(r => r.name).map(r => ({
-      name: r.name, level: parseInt(r.level, 10) || 1,
+      name: r.name, level: parseInt(r.level, 10) || undefined, // left empty until entered
       gender: toGender(r.gender),
+      sessions: Math.max(1, parseInt(r.sessions, 10) || 1),
       availability_bitmask: defaultBitmask(r.availability_bitmask, numSlots),
       location_bitmask: parseLocBitmask(r.location_bitmask),
     })),
@@ -225,7 +228,7 @@ function rowsToData(rows: RowMap): Omit<ScheduleData, 'travelTimes'> {
 const EMPTY_ROW: Record<Tab, () => Record<string, string>> = {
   locations: () => ({ name: '', spaces: '1', spaceNames: '[]' }),
   timeslots: () => ({ day: '', start: '', finish: '', location_bitmask: '', spaces: '[]' }),
-  groups:    () => ({ name: '', level: '', gender: 'female', availability_bitmask: '', location_bitmask: '' }),
+  groups:    () => ({ name: '', level: '', gender: 'female', sessions: '1', availability_bitmask: '', location_bitmask: '' }),
   trainers:  () => ({ name: '', groupID: '', femaleLevel: '1', maleLevel: '1', capacity: '1', trainingGroups: '[]', availability_bitmask: '' }),
   groupRules: () => ({ groups: '[]', against: '[]', required: '0' }), // preferred by default
 };
@@ -397,7 +400,7 @@ function GroupPickerCell({
   );
 }
 
-// One name box per space (Name Spaces). Names must be unique within the location, and
+// One name box per space (Space Names setting). Names must be unique within the location, and
 // with space-specific timeslots every space needs one; problems are highlighted.
 function SpaceNamesCell({
   value, onChange, count, required,
@@ -778,7 +781,9 @@ export default function DataPage() {
     return {
       key: 'trainingGroups',
       header: 'Training Groups',
-      hint: 'The groups this trainer trains. You get one box for each group their capacity allows.',
+      hint: settings.trainerMode === 'mixed'
+        ? 'The groups this trainer always trains. You get one box for each group their capacity allows. The scheduler can fill any box you leave empty.'
+        : 'The groups this trainer trains. You get one box for each group their capacity allows.',
       width: '190px',
       render: (value, onChange, row) => (
         <TrainingGroupsCell
@@ -793,7 +798,7 @@ export default function DataPage() {
       // Pasted as group names separated by commas.
       parsePaste: (values) => ({ value: JSON.stringify(pastedGroupNames(values[0], groupNames)), consumed: 1 }),
     };
-  }, [rows.trainers, groupNames]);
+  }, [rows.trainers, groupNames, settings.trainerMode]);
 
   // Group Rules tab: two sides of picked groups, and whether the rule is required.
   const groupRuleColumns: Column[] = useMemo(() => {
@@ -830,12 +835,25 @@ export default function DataPage() {
 
   // Which columns show depends on the Scheduler Settings (hidden values are kept, not deleted).
   const columns: Record<Tab, Column[]> = useMemo(() => {
+    // When the scheduler chooses trainers, a group's level also decides who can train it.
+    const levelHint = solverTrainerMode(settings) === 'assigned' ? '' : ' A trainer can train a group at their own level or a less advanced one.';
     const groupColumns = BASE_COLUMNS.groups.filter(c =>
-      (c.key !== 'level' || levelsInUse(settings, data)) && (c.key !== 'gender' || settings.genderedTeams));
+      (c.key !== 'level' || levelsInUse(settings, data)) && (c.key !== 'gender' || settings.genderedTeams)
+      && (c.key !== 'sessions' || settings.multipleSessions))
+      .map(c => (c.key === 'level' ? { ...c, hint: c.hint + levelHint } : c));
+    // Levels show when the scheduler chooses trainers, Training Groups when you assign them,
+    // and both in Mixed, where a trainer's levels are greyed out once every box has a group.
     const [nameColumn, capacityColumn] = BASE_COLUMNS.trainers;
-    const trainerColumns = settings.assignTrainers
-      ? [nameColumn, capacityColumn, trainingGroupsColumn]
-      : [nameColumn, ...(settings.genderedTeams ? GENDERED_LEVEL_COLUMNS : [SINGLE_LEVEL_COLUMN]), capacityColumn];
+    const mode = settings.trainerMode;
+    const isFull = (row: Record<string, string>) =>
+      mode === 'mixed' && parseList(row.trainingGroups).slice(0, capacityOf(row)).filter(Boolean).length >= capacityOf(row);
+    const levelColumns = (settings.genderedTeams ? GENDERED_LEVEL_COLUMNS : [SINGLE_LEVEL_COLUMN]).map(c => ({ ...c, disabled: isFull }));
+    const trainerColumns = [
+      nameColumn,
+      ...(mode !== 'assigned' ? levelColumns : []),
+      capacityColumn,
+      ...(mode !== 'chosen' ? [trainingGroupsColumn] : []),
+    ];
     return {
       ...BASE_COLUMNS,
       locations: spacesNamed(settings) ? [...BASE_COLUMNS.locations, spaceNamesColumn] : BASE_COLUMNS.locations,
@@ -937,7 +955,7 @@ export default function DataPage() {
       </div>
 
       <div className="mb-5 flex gap-1 border-b border-gray-200">
-        {TABS.filter(t => t.id !== 'groupRules' || settings.groupRules).map(t => (
+        {TABS.filter(t => (t.id !== 'groupRules' || settings.groupRules) && (t.id !== 'trainers' || settings.trainers)).map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}

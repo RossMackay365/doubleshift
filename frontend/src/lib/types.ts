@@ -5,9 +5,16 @@ export interface RewardSetting {
   points: number;
 }
 
+export type TrainerMode = 'assigned' | 'mixed' | 'chosen';
+
 export interface ScheduleSettings {
   maxSolveSeconds: number;
-  assignTrainers: boolean;   // trainers are assigned to their groups rather than allocated by the solver
+  trainers: boolean;         // off: groups are scheduled without trainers
+  substitutions: boolean;    // the rewards that help members fill in for the group one level above
+  trainerMode: TrainerMode;
+  multipleSessions: boolean; // groups can have more than one session (Group.sessions)
+  sessionsSameDay: boolean;      // a group's sessions can be on the same day
+  sessionsSameTrainer: boolean;  // one trainer takes all of a group's sessions
   genderedTeams: boolean;
   spaceTimeslots: boolean;   // timeslots are chosen per space rather than per location
   nameSpaces: boolean;       // spaces have names (always on with space-specific timeslots)
@@ -22,8 +29,9 @@ export interface ScheduleSettings {
 
 export interface Group {
   name: string;
-  level: number;
+  level?: number; // not set until the user enters one (see levelProblems in lib/settings.ts)
   gender: 'female' | 'male';
+  sessions?: number; // how many sessions it gets, with the Multiple Sessions setting (default 1)
   availability_bitmask: number[];
   location_bitmask?: number[];
 }
@@ -31,7 +39,7 @@ export interface Group {
 export interface Trainer {
   name: string;
   groupID: string; // the group they are a member of ("Member Of"): its name, resolved to an ID at send-time
-  trainingGroups?: string[]; // names of the groups they train, when trainers are assigned to groups
+  trainingGroups?: string[]; // names of the groups they are assigned to train (trainer modes 'assigned' and 'mixed')
   femaleLevel: number;
   maleLevel: number;
   capacity: number; // max groups this trainer can train
@@ -41,7 +49,7 @@ export interface Trainer {
 export interface Location {
   name: string;
   spaces: number;
-  spaceNames?: string[]; // optional name per space (Name Spaces setting); blank = its number
+  spaceNames?: string[]; // optional name per space (Space Names setting); blank = its number
 }
 
 export interface TravelTime {
@@ -111,7 +119,7 @@ export interface JobStats {
   stage?: number | null;
   stage_count?: number | null;
   stage_name?: string | null;
-  // How often each reward was achieved (or penalty incurred): { REWARD_KEY: count }.
+  // How often each reward's penalty was incurred: { REWARD_KEY: count }.
   reward_counts?: Record<string, number> | null;
 }
 

@@ -1,0 +1,270 @@
+{
+  "version": 1,
+  "data": {
+    "locations": [
+      {
+        "name": "Club Hall",
+        "spaces": 3
+      }
+    ],
+    "timeslots": [
+      {
+        "day": "Monday",
+        "start": "17:00",
+        "finish": "18:30",
+        "location_bitmask": [
+          1
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Monday",
+        "start": "18:30",
+        "finish": "20:00",
+        "location_bitmask": [
+          1
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Wednesday",
+        "start": "17:00",
+        "finish": "18:30",
+        "location_bitmask": [
+          1
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Wednesday",
+        "start": "18:30",
+        "finish": "20:00",
+        "location_bitmask": [
+          1
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Friday",
+        "start": "17:00",
+        "finish": "18:30",
+        "location_bitmask": [
+          1
+        ],
+        "spaces": []
+      },
+      {
+        "day": "Friday",
+        "start": "18:30",
+        "finish": "20:00",
+        "location_bitmask": [
+          1
+        ],
+        "spaces": []
+      }
+    ],
+    "groups": [
+      {
+        "name": "Women's 1",
+        "level": 1,
+        "gender": "female",
+        "availability_bitmask": [
+          0,
+          1,
+          0,
+          1,
+          0,
+          0
+        ],
+        "location_bitmask": [
+          1
+        ]
+      },
+      {
+        "name": "Men's 1",
+        "level": 1,
+        "gender": "male",
+        "availability_bitmask": [
+          0,
+          1,
+          0,
+          1,
+          0,
+          0
+        ],
+        "location_bitmask": [
+          1
+        ]
+      },
+      {
+        "name": "Women's 2",
+        "level": 2,
+        "gender": "female",
+        "availability_bitmask": [
+          0,
+          1,
+          0,
+          1,
+          0,
+          1
+        ],
+        "location_bitmask": [
+          1
+        ]
+      },
+      {
+        "name": "Men's 2",
+        "level": 2,
+        "gender": "male",
+        "availability_bitmask": [
+          0,
+          1,
+          0,
+          1,
+          0,
+          1
+        ],
+        "location_bitmask": [
+          1
+        ]
+      },
+      {
+        "name": "Masters Women",
+        "level": 3,
+        "gender": "female",
+        "availability_bitmask": [
+          0,
+          0,
+          0,
+          0,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1
+        ]
+      },
+      {
+        "name": "Masters Men",
+        "level": 3,
+        "gender": "male",
+        "availability_bitmask": [
+          1,
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        "location_bitmask": [
+          1
+        ]
+      },
+      {
+        "name": "Girls Under 14",
+        "level": 3,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        "location_bitmask": [
+          1
+        ]
+      },
+      {
+        "name": "Boys Under 14",
+        "level": 3,
+        "gender": "male",
+        "availability_bitmask": [
+          1,
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        "location_bitmask": [
+          1
+        ]
+      },
+      {
+        "name": "Girls Under 12",
+        "level": 4,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0
+        ],
+        "location_bitmask": [
+          1
+        ]
+      },
+      {
+        "name": "Boys Under 12",
+        "level": 4,
+        "gender": "male",
+        "availability_bitmask": [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0
+        ],
+        "location_bitmask": [
+          1
+        ]
+      },
+      {
+        "name": "Social Women",
+        "level": 5,
+        "gender": "female",
+        "availability_bitmask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "location_bitmask": [
+          1
+        ]
+      },
+      {
+        "name": "Beginners",
+        "level": 5,
+        "gender": "male",
+        "availability_bitmask": [
+          0,
+          0,
+          1,
+          1,
+          0,
+          0
+        ],
+        "location_bitmask": [
+          1
+        ]
+      }
+    ],
+    "trainers": [],
+    "groupRules": [],
+    "travelTimes": []
+  },
+  "settings": {
+    "maxSolveSeconds": 30,
+    "trainers": false,
+    "genderedTeams": true
+  },
+  "last_run": null
+}

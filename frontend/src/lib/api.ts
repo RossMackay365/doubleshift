@@ -2,7 +2,7 @@ import {
   ScheduleData, JobStatus, ScheduleEntry, VerifyResult, ScheduleSettings, expandLocations,
   ScheduleSummary, ScheduleContents, SavedSchedule,
 } from './types';
-import { applySettings, rankedRewards, rewardsPayload } from './settings';
+import { applySettings, rankedRewards, rewardsPayload, solverTrainerMode } from './settings';
 
 // The backend serves the app, so API calls go to the same origin. Only `npm run dev`
 // (a separate server) needs NEXT_PUBLIC_BACKEND_API_URL to point at the backend.
@@ -13,6 +13,7 @@ const API_BASE = process.env.NEXT_PUBLIC_BACKEND_API_URL ?? '';
 // Groups) into IDs.
 function withIDs(rawData: ScheduleData, settings: ScheduleSettings) {
   const data = applySettings(rawData, settings);
+  const trainerMode = solverTrainerMode(settings);
   const groups = data.groups.map((g, i) => ({ ...g, groupID: `g${i}` }));
   const nameToGroupID = new Map(groups.map(g => [g.name, g.groupID]));
 
@@ -20,7 +21,7 @@ function withIDs(rawData: ScheduleData, settings: ScheduleSettings) {
     ...t,
     trainerID: `t${i}`,
     groupID: nameToGroupID.get(t.groupID) ?? '',
-    assigned_groups: settings.assignTrainers
+    assigned_groups: trainerMode !== 'chosen'
       ? (t.trainingGroups ?? []).flatMap(name => nameToGroupID.get(name) ?? [])
       : [],
   }));
@@ -47,7 +48,8 @@ function withIDs(rawData: ScheduleData, settings: ScheduleSettings) {
 
   return {
     groups, trainers, timeslots, spaces, travel_times, location_names, group_rules,
-    assign_trainers: settings.assignTrainers,
+    trainer_mode: trainerMode,
+    session_rules: { same_day: settings.sessionsSameDay, same_trainer: settings.sessionsSameTrainer },
   };
 }
 

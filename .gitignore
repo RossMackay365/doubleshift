@@ -57,8 +57,11 @@ backend/dist/
 /build/
 *.pfx
 
-# Private build and release notes
+# Private Build and Release Notes
 packaging/Packing Instructions.md
 
 # Screenshots for Microsoft Store Submission
 packaging/screenshots/
+
+# Testing Suite
+/tests/

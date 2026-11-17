@@ -38,9 +38,17 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
         </ol>
         <h4>Example Schedules</h4>
         <p>
-          Open ‘Simple Example’ or ‘Complex Example’ under ‘Recently Opened’ on the home
-          page. They are already filled in, so you can press ‘Run’ straight away and see how
-          everything fits together. Both are in your DoubleShift folder, so you can change them freely.
+          Open one of the examples under ‘Recently Opened’ on the home page. They are already
+          filled in, so you can press ‘Run’ straight away and see how everything fits together.
+          They are in your DoubleShift folder, so you can change them freely.
+        </p>
+        <ul>
+          <li><strong>Simple Example</strong>: one location and no trainers, so the scheduler only places the groups. Some groups can only make a few timeslots.</li>
+          <li><strong>Intermediate Example</strong>: two locations, with each group&apos;s trainer chosen by you, and ‘Substitutions’ switched on.</li>
+          <li><strong>Complex Example</strong>: three locations, with some trainers chosen by you and the rest by the scheduler. It uses gendered groups, substitutions, group rules, and two sessions for some groups.</li>
+        </ul>
+        <p>
+          Try switching settings on and off to see how the schedule changes.
         </p>
       </>
     ),
@@ -61,12 +69,13 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
         <h4>Timeslots</h4>
         <p>
           A timeslot is a day and a time when sessions can happen, such as Monday 18:00 to 19:30.
-          Enter times in 24-hour form. Each group gets one session in one timeslot.
+          Enter times in 24-hour form. Each session takes one timeslot.
         </p>
         <h4>Groups</h4>
         <p>
-          A group is a set of people who train together. Each group gets exactly one session. For
-          each group you choose where it can train and which timeslots it can make.
+          A group is a set of people who train together. Each group gets one session, or more with
+          the ‘Multiple Sessions’ setting. For each group you choose where it can train and which
+          timeslots it can make.
         </p>
         <h4>Trainers</h4>
         <p>
@@ -77,7 +86,7 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
         </p>
         <h4>Levels</h4>
         <p>
-          Levels decide which trainers can train which groups. Level 1 is the most advanced. A
+          When the scheduler chooses trainers, levels decide which trainers can train which groups. Level 1 is the most advanced. A
           trainer can train any group at their own level or a less advanced one. For example, a
           trainer with level 2 can train groups at level 2, 3 and 4, but not level 1. Give a trainer
           level 0 to keep them in your list without giving them any groups to train.
@@ -101,8 +110,11 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
           on later.
         </p>
         <p>
-          A new schedule starts with every setting switched off and a ‘Max Solve Time’ of 2 minutes.
-          Three rewards are in use, in this order: ‘Same Day’, ‘No Travel’ and ‘Minimise Wait Time’.
+          A new schedule starts with ‘Trainers’ switched on, ‘Choosing Trainers’ set to ‘Automatic (Level-Based)’,
+          and a ‘Max Solve Time’ of 2 minutes. Every other setting starts switched off. Every reward
+          starts switched on, and is used once the setting or data it needs is there. For example,
+          ‘Same Gender Back-to-Back’ is used once ‘Gendered Groups’ is on, and ‘Minimise Travel’ once
+          you have two or more locations.
         </p>
         <h4>Max Solve Time</h4>
         <p>
@@ -113,16 +125,42 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
         <p>
           Switch this on if your groups are split into female and male groups. Each group gets a
           gender, and each trainer gets a separate level for female and male groups. A trainer can
-          then train one gender at a higher level than the other, or only one gender.
+          then train one gender at a higher level than the other, or only one gender. The ‘Same
+          Gender Back-to-Back’ reward becomes available.
         </p>
-        <h4>Assign Trainers to Groups</h4>
+        <h4>Substitutions</h4>
         <p>
-          Normally the scheduler decides which trainer takes each group, using their levels. Switch
-          this on if you already know who trains each group. On the ‘Trainers’ tab you then choose
-          each trainer&apos;s ‘Training Groups’ yourself, and the scheduler only chooses the day, time
-          and space for each session. Levels are no longer needed, unless a reward you use depends
-          on them.
+          Use this when people fill in for the group one level above their own, such as a player
+          from the second team joining the first team&apos;s session. Switching it on makes
+          three rewards available: ‘Adjacent Groups Back-to-Back’ and ‘Adjacent Groups Same Day’ keep groups
+          one level apart close together, and ‘Trainer Available to Sub in Higher Group’ keeps
+          trainers free when the group above their own trains. Every group then needs a level on
+          the ‘Groups’ tab, and the scheduler won&apos;t run until there are two groups one level
+          apart.
         </p>
+        <h4>Trainers</h4>
+        <p>
+          Switch this off if you only need to place your groups, without trainers. The ‘Trainers’
+          tab is then hidden, sessions show no trainer, and the rewards about trainers are
+          unavailable.
+        </p>
+        <h4>Choosing Trainers</h4>
+        <p>This decides who chooses the trainer for each group.</p>
+        <ul>
+          <li><strong>Manual</strong>: On the ‘Trainers’ tab you choose each trainer&apos;s ‘Training Groups’ yourself, and the scheduler only chooses the day, time and space for each session. Levels are not needed, unless ‘Substitutions’ is on.</li>
+          <li><strong>Automatic (Level-Based)</strong>: The scheduler decides which trainer takes each group, using their levels.</li>
+          <li><strong>Mixed</strong>: You choose the trainers for some groups, and the scheduler chooses the rest. A trainer with spare capacity can still be given other groups, using their levels. Once every ‘Training Groups’ box for a trainer has a group, their levels are greyed out.</li>
+        </ul>
+        <h4>Multiple Sessions</h4>
+        <p>
+          Switch this on when some groups train more than once. Each group then has a ‘Sessions’
+          number on the ‘Groups’ tab. A trainer&apos;s capacity still counts groups, not sessions.
+          Two more settings appear:
+        </p>
+        <ul>
+          <li><strong>Same Day</strong>: Whether a group can have more than one session on the same day. When it is off, each of a group&apos;s sessions is on a different day.</li>
+          <li><strong>Same Trainer</strong>: Whether one trainer takes all of a group&apos;s sessions. When it is off, each session can have a different trainer.</li>
+        </ul>
         <h4>Group Rules</h4>
         <p>
           Use this when people in one group also need to attend another group&apos;s session. For
@@ -136,16 +174,16 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
           rule as ‘Required’ if the sessions must never overlap. Otherwise it is preferred: the
           scheduler avoids overlaps where it can, using the ‘Group Rules’ reward.
         </p>
-        <h4>Name Spaces</h4>
-        <p>
-          Give each space its own name, such as Hall A or Pool 2, instead of a number. The names
-          appear on the schedule.
-        </p>
         <h4>Space-Specific Timeslots</h4>
         <p>
           Normally a timeslot applies to every space at the locations you choose. Switch this on
           when spaces at the same location are available at different times. You then choose the
           exact spaces each timeslot runs in.
+        </p>
+        <h4>Space Names</h4>
+        <p>
+          Give each space its own name, such as Hall A or Pool 2, instead of a number. The names
+          appear on the schedule.
         </p>
       </>
     ),
@@ -161,13 +199,18 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
           scheduler which of them you prefer.
         </p>
         <p>
-          Switch on the rewards that matter to you in ‘Scheduler Settings’. For example, ‘Same Day’ puts
-          all of a trainer&apos;s sessions on one day, and ‘Minimise Wait Time’ keeps those sessions
+          Each reward works by adding to the schedule&apos;s score whenever something you&apos;d rather
+          avoid happens, such as an extra day for a trainer or a minute spent waiting. The
+          scheduler keeps that score as low as it can.
+        </p>
+        <p>
+          Switch on the rewards that matter to you in ‘Scheduler Settings’. For example, ‘Minimise Days’ keeps
+          each trainer&apos;s sessions on as few days as it can, and ‘Minimise Wait Time’ keeps those sessions
           close together. The settings page describes every reward.
         </p>
         <p>
           Some rewards are only available when a particular setting is on, or when your data allows
-          them. For example, ‘No Travel’ needs two or more locations. The settings page lists these
+          them. For example, ‘Minimise Travel’ needs two or more locations. The settings page lists these
           under ‘Unavailable’, with what each one needs.
         </p>
         <p>
@@ -181,10 +224,10 @@ const SECTIONS: { id: string; title: string; body: React.ReactNode }[] = [
         </p>
         <h4>Points</h4>
         <p>
-          Each reward has a number of points, and the schedule with the most points wins. Rewards
-          marked ‘Penalty’ take their points away instead. Use this
-          mode when you want to trade rewards off against each other, for example when two smaller
-          rewards together should outweigh a bigger one.
+          Each reward has a number of points. Every time something a reward counts happens, its
+          points are added to the schedule&apos;s score, and the schedule with the lowest score wins.
+          Use this mode when you want to trade rewards off against each other, for example when
+          two smaller rewards together should outweigh a bigger one.
         </p>
       </>
     ),

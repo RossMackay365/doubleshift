@@ -12,15 +12,16 @@ import ScoreBreakdownPanel from '@/components/ScoreBreakdownPanel';
 import InfoHint from '@/components/InfoHint';
 import { useSchedule } from '@/components/ScheduleProvider';
 import { computeScoreBreakdown } from '@/lib/scoreBreakdown';
-import { applySettings, spaceNameProblems, rewardLabel, timeslotClashes } from '@/lib/settings';
+import { applySettings, levelProblems, spaceNameProblems, rewardLabel, timeslotClashes } from '@/lib/settings';
 
 // Overlay the optimality gap onto a verify result using the solver's best_bound,
 // which the client already holds. Keeps Verify independent of any server-side
 // job state: the backend only returns feasibility + score.
 function withGap(result: VerifyResult, bound: number | null): VerifyResult {
   if (!result.feasible || bound == null || result.score == null) return result;
-  const absolute_gap = Math.round((bound - result.score) * 10000) / 10000;
-  const gap_percent = bound !== 0 ? Math.round((absolute_gap / bound) * 10000) / 100 : 0;
+  // Scores are penalty points (lower is better), and the bound is the lowest possible.
+  const absolute_gap = Math.round((result.score - bound) * 10000) / 10000;
+  const gap_percent = result.score !== 0 ? Math.round((absolute_gap / result.score) * 10000) / 100 : 0;
   return { ...result, best_bound: bound, absolute_gap, gap_percent };
 }
 
@@ -148,15 +149,17 @@ export default function RunPage() {
   if (!data || data.locations.length === 0) todo.push('Add at least one location on the Locations tab.');
   if (!data || data.timeslots.length === 0) todo.push('Add at least one timeslot on the Timeslots tab.');
   if (!data || data.groups.length === 0) todo.push('Add at least one group on the Groups tab.');
-  if (!data || data.trainers.length === 0) todo.push('Add at least one trainer on the Trainers tab.');
+  if (settings.trainers && (!data || data.trainers.length === 0)) todo.push('Add at least one trainer on the Trainers tab.');
   if (data) {
     for (const clash of timeslotClashes(data, settings)) {
       todo.push(`Change the timeslots that overlap in the same space: ${clash}.`);
     }
     // Space names must be complete and unique (see spaceNameProblems).
     todo.push(...spaceNameProblems(data, settings));
-    // With trainers assigned to groups, every group needs a trainer.
-    if (settings.assignTrainers) {
+    // While levels are in use, every group needs one, and level rewards need groups one level apart.
+    todo.push(...levelProblems(data, settings));
+    // When you assign every trainer, every group needs one.
+    if (settings.trainers && settings.trainerMode === 'assigned') {
       const unassigned = data.groups.filter(g => !data.trainers.some(t => t.trainingGroups?.includes(g.name))).map(g => g.name);
       if (unassigned.length > 0) {
         todo.push(`Choose a trainer for ${unassigned.join(', ')}. Pick each one as a Training Group on the Trainers tab.`);
@@ -269,7 +272,7 @@ export default function RunPage() {
         <div className="mb-5 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-base text-blue-700">
           <Pencil size={16} className="shrink-0" />
           <span>
-            Drag a session to move it, or pick another trainer from its dropdown. Press <strong>Verify</strong> to
+            Drag a session to move it{runSettings.trainers && ', or pick another trainer from its dropdown'}. Press <strong>Verify</strong> to
             check your changes, then <strong>Apply Changes</strong> to keep them.
           </span>
           {isModified && (
@@ -308,7 +311,7 @@ export default function RunPage() {
                 <Stat
                   label="Score"
                   value={points(stats.current_score)}
-                  hint="The schedule's total reward points. Higher is better. Open Score Breakdown to see where the points come from."
+                  hint="The schedule's total points from your rewards. Lower is better. Open Score Breakdown to see where the points come from."
                 />
               )}
               {hierarchical && running && stageName && (
@@ -328,7 +331,7 @@ export default function RunPage() {
                 <Stat
                   label="Gap"
                   value={`${stats.gap_percent.toFixed(1)}%`}
-                  hint="How far the score could still be from the best possible. At 0%, no better schedule exists."
+                  hint="How far the score could still be above the best possible. At 0%, no better schedule exists."
                 />
               )}
               {nearTimeout && (
@@ -442,19 +445,7 @@ export default function RunPage() {
             </button>
           </div>
           <ScoreBreakdownPanel
-            items={breakdown?.trainerItems ?? []}
-            genderConsecCount={breakdown?.genderConsecCount ?? 0}
-            genderPossibleCount={breakdown?.genderPossibleCount ?? 0}
-            noTravelDays={breakdown?.noTravelDays ?? 0}
-            noTravelPossibleDays={breakdown?.noTravelPossibleDays ?? 0}
-            noTravelMissed={breakdown?.noTravelMissed ?? []}
-            adjGroupB2bCount={breakdown?.adjGroupB2bCount ?? 0}
-            adjGroupB2bPossible={breakdown?.adjGroupB2bPossible ?? 0}
-            adjGroupSameDayCount={breakdown?.adjGroupSameDayCount ?? 0}
-            adjGroupB2bPenaltyCount={breakdown?.adjGroupB2bPenaltyCount ?? 0}
-            adjGroupB2bPenaltyTrainers={breakdown?.adjGroupB2bPenaltyTrainers ?? []}
-            trainerCount={breakdown?.trainerCount ?? 0}
-            groupRuleClashes={breakdown?.groupRuleClashes ?? []}
+            breakdown={breakdown}
             settings={runSettings}
             data={solverData}
           />
@@ -468,6 +459,7 @@ export default function RunPage() {
             timeslots={solverData!.timeslots}
             spaces={spaces}
             result={result}
+            showTrainers={runSettings.trainers}
             toolbar={<ViewSwitch view={view} onChange={setView} />}
           />
         ) : (
@@ -482,7 +474,8 @@ export default function RunPage() {
               gapPercent={hierarchical ? null : stats?.gap_percent}
               editMode={editMode}
               editableSchedule={editableSchedule}
-              trainers={data.trainers}
+              trainers={runSettings.trainers ? data.trainers : undefined}
+              oneTrainerPerGroup={runSettings.sessionsSameTrainer}
               onScheduleChange={next => { setEditableSchedule(next); setVerifyResult(null); }}
             />
           </>

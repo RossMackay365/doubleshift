@@ -112,7 +112,8 @@
           1,
           1,
           1
-        ]
+        ],
+        "sessions": 2
       },
       {
         "name": "Women's 2",
@@ -188,7 +189,8 @@
           1,
           1,
           1
-        ]
+        ],
+        "sessions": 2
       },
       {
         "name": "Men's 2",
@@ -264,7 +266,8 @@
           1,
           1,
           1
-        ]
+        ],
+        "sessions": 2
       },
       {
         "name": "Girls 2",
@@ -321,7 +324,8 @@
           1,
           1,
           1
-        ]
+        ],
+        "sessions": 2
       },
       {
         "name": "Boys 2",
@@ -445,7 +449,9 @@
         "femaleLevel": 1,
         "maleLevel": 2,
         "capacity": 2,
-        "trainingGroups": [],
+        "trainingGroups": [
+          "Women's 1"
+        ],
         "availability_bitmask": [
           1,
           1,
@@ -462,7 +468,9 @@
         "femaleLevel": 2,
         "maleLevel": 1,
         "capacity": 2,
-        "trainingGroups": [],
+        "trainingGroups": [
+          "Men's 1"
+        ],
         "availability_bitmask": [
           1,
           1,
@@ -598,7 +606,9 @@
         "femaleLevel": 4,
         "maleLevel": 4,
         "capacity": 1,
-        "trainingGroups": [],
+        "trainingGroups": [
+          "Social Women"
+        ],
         "availability_bitmask": [
           1,
           1,
@@ -717,7 +727,9 @@
         "femaleLevel": 4,
         "maleLevel": 4,
         "capacity": 1,
-        "trainingGroups": [],
+        "trainingGroups": [
+          "Girls 3"
+        ],
         "availability_bitmask": [
           1,
           1,
@@ -798,9 +810,12 @@
   },
   "settings": {
     "maxSolveSeconds": 60,
+    "rewardMode": "points",
+    "trainerMode": "mixed",
     "genderedTeams": true,
+    "substitutions": true,
     "groupRules": true,
-    "rewardMode": "points"
+    "multipleSessions": true
   },
   "last_run": null
 }

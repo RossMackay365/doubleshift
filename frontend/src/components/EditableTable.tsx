@@ -10,6 +10,7 @@ export interface Column {
   options?: string[];
   placeholder?: string;
   width?: string;
+  disabled?: (row: Record<string, string>) => boolean; // greys out the cell for some rows (typed columns only)
   render?: (value: string, onChange: (v: string) => void, row: Record<string, string>) => React.ReactNode;
   parsePaste?: (values: string[]) => { value: string; consumed: number };
 }
@@ -112,7 +113,8 @@ export default function EditableTable({ columns, rows, onChange, createEmpty }: 
                       placeholder={col.placeholder}
                       onChange={e => update(rowIdx, col.key, e.target.value)}
                       onPaste={e => handlePaste(e, rowIdx, colIdx)}
-                      className="w-full rounded border-0 bg-transparent px-1.5 py-1.5 text-base text-gray-900 placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
+                      disabled={col.disabled?.(row)}
+                      className="w-full rounded border-0 bg-transparent px-1.5 py-1.5 text-base text-gray-900 placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 disabled:cursor-not-allowed disabled:text-gray-300"
                     />
                   )}
                 </td>
