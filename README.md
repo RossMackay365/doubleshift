@@ -2,6 +2,10 @@
 
 DoubleShift builds a training schedule for a sports association, club or school. You tell it which groups need a session, who can train them, and where and when sessions can happen. It then finds the best schedule it can, and you decide what "best" means. It works either way you organise your trainers. If you already know who trains each group, DoubleShift picks the day, time and space for each session. If you don't, it also chooses a suitable trainer for each group.
 
+<a href="https://get.microsoft.com/installer/download/9NLBSFB2WGVZ?referrer=appbadge" target="_self">
+	<img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200" alt="Get it from Microsoft"/>
+</a>
+
 ## How It Works
 
 1. **Add your data.** Enter your locations, timeslots, groups and trainers on the Data page.
@@ -18,7 +22,7 @@ There are three ways to get the app. All of them run the same scheduler, and all
 
 ### Microsoft Store
 
-Search for **DoubleShift: Training Scheduler** in the Microsoft Store on Windows 10 or 11. This is the easiest way: Windows installs the app, keeps it up to date, and opens `.doubleshift` files with it.
+Get **DoubleShift: Training Scheduler** from the Microsoft Store on Windows 10 or 11. This is the easiest way: Windows installs the app, keeps it up to date, and opens `.doubleshift` files with it.
 
 ### Docker
 
